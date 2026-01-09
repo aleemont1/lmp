@@ -1,78 +1,33 @@
-#include <Arduino.h>
-#include <RadioLib.h>
-#include <WiFi.h>
-#include <esp_now.h>
+#include "Packet.hpp"
+#include "PacketSerializer.hpp"
 
-#include <Packet.hpp>
-#include <PacketSerializer.hpp>
+#include <vector>
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-// instead of defining RADIO_BOARD_AUTO,
-// board can be specified manually
-#define RADIO_BOARD_WIFI_LORA32_V3
+static const char *TAG = "lmp_app";
 
-// now include RadioBoards
-// this must be included AFTER RadioLib!
-#include <RadioBoards.h>
+extern "C" void app_main(void) {
+  esp_log_level_set(TAG, ESP_LOG_INFO);
+  ESP_LOGI(TAG, "Starting LoRaMultiPacket example (ESP-IDF)");
 
-Radio radio = new RadioModule();
+  // Example data to split
+  std::vector<uint8_t> data;
+  for (int i = 0; i < 200; ++i) data.push_back(static_cast<uint8_t>(i & 0xFF));
 
-void onDataRecv(const uint8_t *info, const uint8_t *data, int len)
-{
-  if (len != sizeof(Packet))
-  {
-    Serial.println("Received malformed packet of size " + String(len));
-    return;
+  auto packets = PacketSerializer::splitVectorToPackets(data, 1);
+  ESP_LOGI(TAG, "Created %u packets", (unsigned)packets.size());
+
+  for (size_t i = 0; i < packets.size(); ++i) {
+    packets[i].printPacket();
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
 
-  Packet packet;
-  memcpy(&packet, data, sizeof(Packet));
-  packet.printPacket();
-  int state = radio.transmit((uint8_t *)&packet, sizeof(packet));
-  if (state == RADIOLIB_ERR_NONE)
-  {
-    Serial.println("LoRa TX complete!");
-  }
-  else
-  {
-    Serial.print("LoRa TX failed, code: ");
-    Serial.println(state);
+  while (true) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
+// Removed Arduino sketch during migration to ESP-IDF.
+// The ESP-IDF application is in `main/src/main.cpp`.
 
-void setup()
-{
-  Serial.begin(115200);
-  Serial.println("Starting...");
-
-  // Ensure Wi-Fi is in station mode before initializing ESP-NOW
-  WiFi.mode(WIFI_STA);
-  if (esp_now_init() != ESP_OK)
-  {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-
-  esp_now_register_recv_cb(onDataRecv);
-
-  Serial.println("ESP-NOW Receiver Initialized");
-
-  // Inizializza LoRa
-  int state = radio.begin();
-  if (state != RADIOLIB_ERR_NONE)
-  {
-    Serial.print("Errore radio LoRa: ");
-    Serial.println(state);
-    return;
-  }
-  // Imposta i parametri LoRa (opzionale)
-  radio.setFrequency(868.0);    // frequenza LoRa EU
-  radio.setBandwidth(125.0);    // kHz
-  radio.setSpreadingFactor(9);  // 6-12
-  radio.setCodingRate(5);       // 5 = 4/5
-  radio.setOutputPower(17);     // dBm
-  Serial.println("Ricevitore pronto!");
-}
-
-void loop()
-{
-}
