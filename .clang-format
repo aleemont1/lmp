@@ -1,0 +1,22 @@
+BasedOnStyle: Google
+Standard: Cpp11
+Language: Cpp
+
+IndentWidth: 2
+UseTab: ForIndentation
+ColumnLimit: 0
+ReflowComments: true
+
+BreakBeforeBraces: Allman
+PointerBindsToType: false
+
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+
+SpacesInParentheses: false
+SpaceBeforeParens: ControlStatements
+IndentCaseLabels: true
+
+SortIncludes: true
+IncludeBlocks: Regroup

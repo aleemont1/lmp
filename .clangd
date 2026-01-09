@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: [-I.pio/build/heltec_wifi_lora_32_V3/framework-arduinoespressif32/cores/esp32, -I.pio/libdeps/heltec_wifi_lora_32_V3]
