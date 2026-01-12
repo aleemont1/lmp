@@ -1,5 +1,67 @@
-.pio
+# -----------------------
+# PlatformIO / Embedded
+# -----------------------
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# -----------------------
+# VS Code
+# -----------------------
+.vscode/*
+# Allow shared configuration files (optional but recommended for teams)
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/c_cpp_properties.json
+# Always ignore large IntelliSense databases and local history
 .vscode/.browse.c_cpp.db*
-.vscode/c_cpp_properties.json
-.vscode/launch.json
-.vscode/ipch
+.vscode/ipch/
+.history/
+*.code-workspace
+
+# -----------------------
+# C/C++ & CMake Build Artifacts
+# -----------------------
+build/
+cmake-build-*/
+dist/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# -----------------------
+# ESP-IDF / Firmware Output
+# -----------------------
+sdkconfig.old
+*.map
+*.elf
+*.bin
+*.hex
+*.uf2
+
+# -----------------------
+# Clang / Tooling
+# -----------------------
+# compile_commands.json contains local paths, do not commit
+compile_commands.json
+.clang/
+
+# -----------------------
+# OS System Files
+# -----------------------
+.DS_Store
+.DS_Store?
+._*
+.Trashes
+Thumbs.db
+Desktop.ini
