@@ -174,3 +174,10 @@ int main(void)
   RUN_TEST(test_binary_serialization_layout);
   return UNITY_END();
 }
+
+#ifdef ESP_PLATFORM
+extern "C" void app_main(void)
+{
+  main();
+}
+#endif

@@ -12,22 +12,37 @@ Keep these facts in mind when editing or extending the code:
 - Data flow: application -> build Packet (fill `Packet::header` + `Packet::payload`) -> call `Packet::calculateCRC()` -> `PacketSerializer::serialize()` copies header+payload+crc into a byte buffer ready to send via LoRa.
 - Size constraints are important: constants in `Packet.hpp` control max sizes (e.g. `MAX_PACKET_SIZE`, `MAX_TX_PACKET_SIZE`, `LORA_MAX_PAYLOAD_SIZE`). Respect these when building payloads.
 
-## Files & key symbols to reference
+````instructions
+## Quick orientation — LoRaMultiPacket
 
-- `lib/LoRaMultiPacket/src/Packet.hpp`
-  - `PacketHeader` (fields: `packetNumber`, `totalChunks`, `chunkIndex`, `payloadSize`, `timestamp`, `protocolVersion`)
-  - `Packet` struct methods: `calculateCRC()`, `printPacket()`
-  - Constants: `HEADER_SIZE`, `LORA_MAX_PAYLOAD_SIZE` (used to size payload buffer)
-- `lib/LoRaMultiPacket/src/Packet.cpp`
-  - CRC implementation uses `offsetof(Packet, crc)` to exclude the `crc` field from the CRC calculation (important detail when changing fields).
-  - `printPacket()` uses `Serial` for debugging; ensure `Serial.begin()` is called by the sketch before printing.
-  - NOTE: `printPacket()` currently references `chunkNumber` and `chunkSize` — these names do not match the fields in `PacketHeader` (`chunkIndex`/`payloadSize`). Search for this mismatch before editing; it's a discovered inconsistency to fix.
-- `lib/LoRaMultiPacket/src/PacketSerializer.cpp`
-  - `PacketSerializer::serialize()` performs three `memcpy()` calls: header, payload, crc. It assumes the packed layout defined in `Packet.hpp`.
+This repo implements a compact, packed C++ library that structures multi-chunk LoRa packets and a minimal example application. Use these notes when editing or extending the code.
+
+- Library layout (current): `components/LoRaMultiPacket`
+  - Public headers: `components/LoRaMultiPacket/include/Packet.hpp`, `components/LoRaMultiPacket/include/PacketSerializer.hpp`
+  - Implementation sources: `components/LoRaMultiPacket/src/Packet.cpp`, `components/LoRaMultiPacket/src/PacketSerializer.cpp`
+- Example application entrypoint: `src/main.cpp` (minimal Arduino/PlatformIO sketch). The project builds with PlatformIO; an environment named `heltec_wifi_lora_32_V3` is defined in `platformio.ini`.
+
+## Big picture
+
+- Responsibility: the package defines the binary packet layout (packed structs), CRC calculation, and a serializer. It intentionally does not perform radio TX/RX — application code should call the serializer then hand the buffer to the radio API.
+- Data flow: application -> populate `Packet` (fill `Packet::header` + `Packet::payload`) -> call `Packet::calculateCRC()` -> `PacketSerializer::serialize()` copies header, fixed-size payload region, and CRC into a send buffer.
+- Size constraints are important: constants in `Packet.hpp` control sizes (for example `HEADER_SIZE`, `LORA_MAX_PAYLOAD_SIZE`). Respect those when constructing `payloadSize` and sending packets.
+
+## Files & key symbols
+
+- `components/LoRaMultiPacket/include/Packet.hpp`
+  - `PacketHeader` fields: `packetNumber`, `totalChunks`, `chunkIndex`, `payloadSize`, `timestamp`, `protocolVersion` (verify exact names in the header before changes).
+  - `Packet` methods: `calculateCRC()`, `printPacket()`.
+  - Size constants: `HEADER_SIZE`, `LORA_MAX_PAYLOAD_SIZE` (used to size payload buffers and for serialization).
+- `components/LoRaMultiPacket/src/Packet.cpp`
+  - `Packet::calculateCRC()` computes CRC-16 over the packet up to (but excluding) the `crc` field using `offsetof(Packet, crc)`. When modifying the packet layout, keep this behavior and update any size constants.
+  - `Packet::printPacket()` uses `Serial` for debug output; ensure `Serial.begin()` is called by the sketch before printing. Note: there is a past mismatch where `printPacket()` referenced `chunkNumber`/`chunkSize` while the header uses `chunkIndex`/`payloadSize` — search and fix name mismatches if you touch debug code.
+- `components/LoRaMultiPacket/src/PacketSerializer.cpp`
+  - `PacketSerializer::serialize()` does sequential `memcpy()` operations: header, payload region (fixed size), then CRC. It relies on the packed layout and the payload buffer size defined in `Packet.hpp`.
 
 ## Build / test / debugging (practical commands)
 
-Use PlatformIO (CLI or VSCode extension). Typical commands (from repository root):
+Use PlatformIO (CLI or VSCode extension). From repository root:
 
 ```bash
 # build the default environment
@@ -40,48 +55,35 @@ pio run -e heltec_wifi_lora_32_V3 -t upload
 pio device monitor -e heltec_wifi_lora_32_V3
 ```
 
-If using the VSCode PlatformIO extension, open the project and use the UI tasks (Build, Upload, Monitor).
+Unit tests and helper code lives in `test/` and `unit_test/` — use `tools/run_unit_tests.sh` to run hosted tests where available.
 
 ## Project-specific conventions & gotchas
 
-- Packed structs: `#pragma pack(push, 1)` / `#pragma pack(pop)` are used in `Packet.hpp`. Adding/removing fields changes raw layout and CRC — always update `calculateCRC()` expectations and `HEADER_SIZE` if you change `PacketHeader`.
-- CRC calculation: implemented in `Packet::calculateCRC()` using a CRC-16 loop and `offsetof(Packet, crc)`. Any layout or alignment change must preserve this behavior.
-- Serialization: `PacketSerializer::serialize()` assumes fixed-size payload copy using `sizeof(PacketPayload)`. When changing `LORA_MAX_PAYLOAD_SIZE` or payload semantics, update both the header constants and serializer.
-- Arduino runtime assumptions: debug printing uses `Serial` and `String` (Arduino core). Make sure `Serial.begin()` is present in `setup()` for readable output.
+- Packed layout: the headers use `#pragma pack(push, 1)` / `#pragma pack(pop)` to ensure a compact binary layout. Adding or removing fields changes the raw on-wire layout and will change CRC inputs; if you change fields, update `HEADER_SIZE`, any consumer code, and document the protocol version bump.
+- CRC: `Packet::calculateCRC()` uses a CRC-16 loop and `offsetof(Packet, crc)` so the `crc` field itself is excluded from the calculation. Preserve this if you change the struct order or add fields.
+- Serialization: `PacketSerializer::serialize()` assumes a fixed payload buffer region sized with `LORA_MAX_PAYLOAD_SIZE` (see the header). If you change `LORA_MAX_PAYLOAD_SIZE`, update both the header and the serializer to match.
+- Debug printing: `Packet::printPacket()` prints to `Serial`. Confirm `Serial.begin()` is present in `src/main.cpp` when using prints on a device.
 
-## Useful quick searches for automation tasks
+## Quick searches
 
-- Find where packet layout/size is referenced: `grep -R "LORA_MAX_PAYLOAD_SIZE\|HEADER_SIZE\|PacketHeader" -n`
-- Find CRC code: `grep -R "calculateCRC" -n`
-- Find serializer usage: `grep -R "PacketSerializer" -n`
+To find relevant symbols or sizes quickly:
 
-## Examples to copy/paste for an agent
-
-- Build a buffer and serialize a packet (pseudo-code referencing repo symbols):
-
-```cpp
-Packet p;
-p.header.packetNumber = 1;
-p.header.totalChunks = 2;
-p.header.chunkIndex = 0;
-p.header.payloadSize = /* <= LORA_MAX_PAYLOAD_SIZE */;
-// fill p.payload.data[0..p.header.payloadSize-1]
-p.calculateCRC();
-uint8_t buffer[HEADER_SIZE + sizeof(PacketPayload) + sizeof(uint16_t)];
-PacketSerializer::serialize(p, buffer);
-// send `buffer` using LoRa radio API
+```bash
+grep -R "LORA_MAX_PAYLOAD_SIZE\|HEADER_SIZE\|PacketHeader" -n
+grep -R "calculateCRC" -n
+grep -R "PacketSerializer" -n
 ```
 
-## When making edits, prioritise
+## Reporting issues / editing tips
 
-1. Preserve binary layout compatibility unless intentionally bumping protocol version. The `protocolVersion` field exists for that purpose.
-2. Update `calculateCRC()` and `PacketSerializer` together with any layout change.
-3. Run a build (`pio run`) and a serial test (`pio device monitor`) after changes that affect runtime behavior.
-
-## Reporting issues for other agents / maintainers
-
-- Mention the file and exact symbol names (e.g., `Packet::printPacket()` in `lib/LoRaMultiPacket/src/Packet.cpp`) and include small diffs if proposing fixes.
+- When reporting or changing code, mention exact symbols and file paths — for example `Packet::printPacket()` in [components/LoRaMultiPacket/src/Packet.cpp](components/LoRaMultiPacket/src/Packet.cpp).
+- If you change the packet layout, update `Packet::calculateCRC()`, `HEADER_SIZE`, and `PacketSerializer::serialize()` together to keep on-wire compatibility predictable. Use `protocolVersion` in the header when you intentionally change wire format.
 
 ---
 
-If any of the above assumptions are wrong or you want me to expand this with examples (unit tests, CI, or a simple transmitter/receiver example), tell me which area to expand.
+If you'd like, I can also:
+- add a short unit test demonstrating serialization and CRC verification,
+- fix the `printPacket()` name mismatches, or
+- add a tiny example transmitter/receiver sketch that uses the serializer.
+Tell me which and I'll implement it.
+````
