@@ -89,6 +89,13 @@ constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
 constexpr size_t LORA_MAX_PAYLOAD_SIZE = MAX_TX_PACKET_SIZE - HEADER_SIZE - CRC_SIZE;
 
 /**
+ * @brief Padding byte value used to fill unused space in the final packet's payload.
+ * When the last chunk contains fewer bytes than LORA_MAX_PAYLOAD_SIZE, remaining slots
+ * are filled with this value to maintain fixed-size serialization.
+ */
+constexpr uint8_t PAYLOAD_PADDING_BYTE = 0xFF;
+
+/**
  * @brief Fixed-size container for payload data.
  */
 struct PacketPayload
