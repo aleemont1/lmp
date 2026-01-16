@@ -42,20 +42,20 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
 
     std::memcpy(packet.payload.data, data + offset, payloadSize);
 
-    // Fill remaining bytes with padding (0x01) if payload is not full
+    // Fill remaining bytes with padding (all 1s) if payload is not full
     if (payloadSize < LORA_MAX_PAYLOAD_SIZE)
     {
-      std::memset(packet.payload.data + payloadSize, 0x01,
+      std::memset(packet.payload.data + payloadSize, PAYLOAD_PADDING_BYTE,
                   LORA_MAX_PAYLOAD_SIZE - payloadSize);
     }
 
-    // Set flags using defined constants (Best Practice)
+    // Set flags using defined constants.
     uint8_t flags = 0;
     if (chunkIndex == 0)
     {
       flags |= PACKET_FLAG_SOM;
     }
-    if (chunkIndex == (uint8_t)(totalChunks - 1))
+    if (chunkIndex == (uint8_t)(totalChunks - 1)) // chunkIndex is 0-based.
     {
       flags |= PACKET_FLAG_EOM;
     }
