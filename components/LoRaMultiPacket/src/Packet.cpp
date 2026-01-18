@@ -10,20 +10,37 @@
 void Packet::calculateCRC()
 {
   uint16_t crc = 0xFFFF;
-  const uint8_t *data = reinterpret_cast<const uint8_t *>(this);
-  size_t length = offsetof(Packet, crc);
-
-  for (size_t i = 0; i < length; i++)
+  
+  // CRC covers: full header + only valid payload bytes (exclude padding)
+  // This decouples integrity checking from physical layout and padding strategy
+  
+  // Process header
+  const uint8_t *headerPtr = reinterpret_cast<const uint8_t *>(&this->header);
+  for (size_t i = 0; i < HEADER_SIZE; i++)
   {
-    crc ^= data[i];
+    crc ^= headerPtr[i];
     for (uint8_t j = 0; j < 8; j++)
     {
       if (crc & 0x0001)
-	crc = (crc >> 1) ^ 0xA001;
+        crc = (crc >> 1) ^ 0xA001;
       else
-	crc = crc >> 1;
+        crc = crc >> 1;
     }
   }
+
+  // Process only valid payload bytes (up to payloadSize), exclude padding
+  for (size_t i = 0; i < this->header.payloadSize; i++)
+  {
+    crc ^= this->payload.data[i];
+    for (uint8_t j = 0; j < 8; j++)
+    {
+      if (crc & 0x0001)
+        crc = (crc >> 1) ^ 0xA001;
+      else
+        crc = crc >> 1;
+    }
+  }
+
   this->crc = crc;
 }
 
