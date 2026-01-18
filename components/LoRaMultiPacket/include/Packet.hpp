@@ -7,7 +7,7 @@
  * @brief Maximum raw packet size assumed for transmit buffers (including header and CRC).
  * Many LoRa modules have a FIFO limit (e.g., 256 bytes for SX127x).
  */
-constexpr size_t MAX_PACKET_SIZE = 256;
+constexpr size_t MAX_PACKET_SIZE = 255;
 
 /**
  * @brief Reserved bytes for future use or driver overhead.
@@ -114,8 +114,18 @@ struct Packet
   uint16_t crc;           ///< Error detection checksum.
 
   /**
-   * @brief Calculates the CRC-16 of the packet (Header + Payload) and updates the 'crc' field.
-   * Uses Modbus CRC-16 algorithm.
+   * @brief Calculates the CRC-16 of the packet and updates the 'crc' field.
+   *
+   * **CRC Scope:** Covers the full header + only valid payload bytes (respects payloadSize).
+   * Padding bytes in the payload buffer are explicitly excluded from CRC calculation.
+   *
+   * Rationale: This design decouples integrity checking from physical layout and padding
+   * strategy. A bit flip in unused padding does not cause a false CRC failure. The CRC protects
+   * the semantic message content, not transport artifacts used to fit hardware constraints.
+   *
+   * Algorithm: Modbus CRC-16 (polynomial 0xA001, initial value 0xFFFF).
+   *
+   * Formula: CRC(header || payload[0..payloadSize-1])
    */
   void calculateCRC();
 
