@@ -67,5 +67,5 @@
     "--clang-tidy"
   ],
   "C_Cpp.intelliSenseEngine": "default",
-  "C_Cpp.errorSquiggles": "enabled" // Abilita l'intellisense di Microsoft C++
+  "C_Cpp.errorSquiggles": "disabled" // Abilita l'intellisense di Microsoft C++
 }
