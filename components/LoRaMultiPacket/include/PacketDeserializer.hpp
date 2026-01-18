@@ -1,53 +1,39 @@
 #pragma once
 
-#include <map>
-#include <string>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "Packet.hpp"
-
-struct DeserializeResult
-{
-  bool success;
-  std::vector<uint8_t> payload;
-  std::map<uint8_t, Packet> chunks;  // Map by chunk index for reordering
-  size_t paddingBitFlips = 0;        // Count corrupted padding bits for link diagnosis
-  std::string error;
-};
+#include "PacketValidator.hpp"
 
 /**
  * @class PacketDeserializer
- * @brief Static utility class for converting between Packet structures and raw data buffers.
- * This class handles the reconstruction of payloads inside Packet sequences.
+ * @brief Extracts payload data from validated Packet structures.
+ *
+ * Converts Packet structures into their payload data, respecting the logical
+ * payload size and excluding padding bytes. Performs payload extraction only
+ * on packets that have already been validated.
+ *
+ * **Workflow:**
+ *   1. Receive a validated Packet structure
+ *   2. Extract only the valid payload bytes (up to header.payloadSize)
+ *   3. Return vector containing the actual payload data
+ *   4. Padding bytes are automatically excluded
  */
 class PacketDeserializer
 {
  public:
   /**
-   * @brief Deserializes a sequence of packets into the original payload.
+   * @brief Extracts payload data from a validated packet.
    *
-   * Handles out-of-order packet arrival, validates CRC for each packet,
-   * detects padding bit flips, and reconstructs the complete message.
+   * Extracts only the valid payload bytes from a Packet structure,
+   * respecting the payloadSize field and excluding padding.
    *
-   * @param packets Vector of received packets (order-independent)
-   * @return DeserializeResult containing payload, diagnostics, and error info
+   * **Precondition:** The packet should have been validated via PacketValidator.
+   *
+   * @param packet The validated packet to extract from
+   * @return Vector containing the extracted payload bytes (payloadSize bytes)
    */
-  static DeserializeResult deserialize(const std::vector<Packet> &packets);
-
- private:
-  /**
-   * @brief Extracts valid payload bytes from a single packet.
-   *
-   * @param packet The packet to extract from
-   * @return Vector containing valid payload bytes (respects payloadSize)
-   */
-  static std::vector<uint8_t> extractPayloadChunk(const Packet &packet);
-
-  /**
-   * @brief Validates and counts padding byte corruption.
-   *
-   * @param packet The packet to validate
-   * @return Number of corrupted padding bytes (bit flip indicator)
-   */
-  static size_t validatePadding(const Packet &packet);
+  static std::vector<uint8_t> deserialize(const Packet &packet);
 };
