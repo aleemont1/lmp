@@ -7,6 +7,9 @@
 
 #include "Packet.hpp"
 #include "PacketSerializer.hpp"
+#include "PacketValidator.hpp"
+#include "PacketParser.hpp"
+#include "PacketDeserializer.hpp"
 
 void setUp(void)
 {
@@ -164,6 +167,121 @@ static void test_binary_serialization_layout(void)
   TEST_ASSERT_EQUAL_UINT16(p.crc, serializedCrc);
 }
 
+// ============================================================================
+// Deserializer, Parser, and Validator tests
+// ============================================================================
+
+/**
+ * @brief Verifies that a valid single-chunk packet parses and validates correctly.
+ */
+static void test_parser_valid_single_chunk(void)
+{
+  Packet pkt;
+  pkt.header.messageId = 1;
+  pkt.header.totalChunks = 1;
+  pkt.header.chunkIndex = 0;
+  pkt.header.payloadSize = 50;
+  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.protocolVersion = 1;
+
+  std::memcpy(pkt.payload.data, "Single chunk packet test", 24);
+  pkt.calculateCRC();
+
+  uint8_t buffer[256];
+  std::memcpy(buffer, &pkt, sizeof(Packet));
+
+  auto result = PacketParser::parse(buffer, sizeof(Packet));
+  TEST_ASSERT_TRUE(result.has_value());
+  TEST_ASSERT_EQUAL_UINT16(1, result.value().header.messageId);
+  TEST_ASSERT_EQUAL_UINT8(1, result.value().header.totalChunks);
+  TEST_ASSERT_EQUAL_UINT8(50, result.value().header.payloadSize);
+}
+
+/**
+ * @brief Verifies that a buffer that is too small is rejected.
+ */
+static void test_parser_rejects_buffer_too_small(void)
+{
+  uint8_t buffer[10];
+  auto result = PacketParser::parse(buffer, 10);
+  TEST_ASSERT_FALSE(result.has_value());
+}
+
+/**
+ * @brief Verifies that invalid protocol version is rejected.
+ */
+static void test_parser_rejects_invalid_protocol_version(void)
+{
+  Packet pkt;
+  pkt.header.messageId = 1;
+  pkt.header.totalChunks = 1;
+  pkt.header.chunkIndex = 0;
+  pkt.header.payloadSize = 10;
+  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.protocolVersion = 99;
+
+  std::memset(pkt.payload.data, 0x00, 10);
+  pkt.calculateCRC();
+
+  uint8_t buffer[256];
+  std::memcpy(buffer, &pkt, sizeof(Packet));
+
+  auto result = PacketParser::parse(buffer, sizeof(Packet));
+  TEST_ASSERT_FALSE(result.has_value());
+}
+
+/**
+ * @brief Verifies that CRC mismatch is detected and rejected.
+ */
+static void test_parser_rejects_crc_mismatch(void)
+{
+  Packet pkt;
+  pkt.header.messageId = 1;
+  pkt.header.totalChunks = 1;
+  pkt.header.chunkIndex = 0;
+  pkt.header.payloadSize = 32;
+  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.protocolVersion = 1;
+
+  std::memset(pkt.payload.data, 0xAA, 32);
+  pkt.calculateCRC();
+
+  uint8_t buffer[256];
+  std::memcpy(buffer, &pkt, sizeof(Packet));
+
+  // Corrupt the CRC
+  uint16_t *crc_ptr = reinterpret_cast<uint16_t *>(
+      buffer + HEADER_SIZE + sizeof(PacketPayload));
+  *crc_ptr ^= 0xFFFF;
+
+  auto result = PacketParser::parse(buffer, sizeof(Packet));
+  TEST_ASSERT_FALSE(result.has_value());
+}
+
+/**
+ * @brief Verifies that payload deserialization extracts only valid bytes.
+ */
+static void test_deserializer_extracts_valid_bytes(void)
+{
+  Packet pkt;
+  pkt.header.messageId = 1;
+  pkt.header.totalChunks = 1;
+  pkt.header.chunkIndex = 0;
+  pkt.header.payloadSize = 38;
+  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.protocolVersion = 1;
+
+  const char testData[] = "Payload deserialization test data here";
+  std::memcpy(pkt.payload.data, testData, 38);
+  std::memset(pkt.payload.data + 38, PAYLOAD_PADDING_BYTE,
+              LORA_MAX_PAYLOAD_SIZE - 38);
+  pkt.calculateCRC();
+
+  auto extractedPayload = PacketDeserializer::deserialize(pkt);
+  TEST_ASSERT_EQUAL_size_t(38, extractedPayload.size());
+  TEST_ASSERT_EQUAL_MEMORY(testData, extractedPayload.data(), 38);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -172,6 +290,11 @@ int main(void)
   RUN_TEST(test_packet_flags_multipacket);
   RUN_TEST(test_packet_flags_single_packet);
   RUN_TEST(test_binary_serialization_layout);
+  RUN_TEST(test_parser_valid_single_chunk);
+  RUN_TEST(test_parser_rejects_buffer_too_small);
+  RUN_TEST(test_parser_rejects_invalid_protocol_version);
+  RUN_TEST(test_parser_rejects_crc_mismatch);
+  RUN_TEST(test_deserializer_extracts_valid_bytes);
   return UNITY_END();
 }
 
