@@ -6,6 +6,7 @@
 **LoRaMultiPacket**  
 A lightweight, robust C++ library for packet segmentation and reassembly over narrowband LoRa links.
 
+![Unit Tests](https://img.shields.io/github/actions/workflow/status/aleemont1/lmp/ci.yml?style=for-the-badge)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-f5822a?style=for-the-badge&logo=platformio&logoColor=white)
 ![Unity](https://img.shields.io/badge/Unity-181717?style=for-the-badge&logo=c&logoColor=white)
