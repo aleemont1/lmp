@@ -28,6 +28,5 @@ extern "C" void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
-// Removed Arduino sketch during migration to ESP-IDF.
-// The ESP-IDF application is in `main/src/main.cpp`.
+
 
