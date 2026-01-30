@@ -16,8 +16,31 @@
 class PacketReassembler
 {
  public:
+   /**
+   * @brief Processes an incoming packet and attempts to reassemble the full message.
+   *
+   * If the packet completes a sequence, the full payload is returned.
+   * If the sequence is still incomplete, std::nullopt is returned.
+   *
+   * @param packet The valid packet received from the network.
+   * @param currentTimestampMs A distinct timestamp (e.g., millis) to track timeout.
+   * @return std::optional<std::vector<uint8_t>> The complete reassembled payload if finished.
+   */
   std::optional<std::vector<uint8_t>> processPacket(const Packet &packet, uint32_t currentTimestampMs);
+
+  /**
+   * @brief Removes incomplete messages that have exceeded the timeout duration.
+   *
+   * Should be called periodically to free up memory from lost or incomplete sequences.
+   *
+   * @param currentTimestampMs The current system time.
+   * @param timeoutMs The maximum duration to keep an incomplete message since its first packet arrived.
+   */
   void prune(uint32_t currentTimestampMs, uint32_t timeoutMs);
+
+  /**
+   * @brief Clears all pending reassembly sessions.
+   */
   void reset();
 
  private:
