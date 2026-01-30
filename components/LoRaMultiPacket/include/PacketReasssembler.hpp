@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <optional>
 #include <vector>
+#include <map>
 
 #include "Packet.hpp"
 /**
@@ -49,7 +50,6 @@ class PacketReassembler
    */
   static constexpr size_t MAX_CONCURRENT_MESSAGES = 10;
 
-  
   struct ReassemblySession
   {
     uint8_t totalChunks;
@@ -69,4 +69,14 @@ class PacketReassembler
     {
     }
   };
+
+  /**
+   * @brief Map of Message ID -> Reassembly Session.
+   */
+  std::map<uint16_t, ReassemblySession> sessions_;
+
+  /**
+   * @brief Internal helper to reconstruct payload from a complete session.
+   */
+  std::vector<uint8_t> reconstruct(const ReassemblySession &session);
 }
