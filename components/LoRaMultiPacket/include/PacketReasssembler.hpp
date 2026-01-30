@@ -16,7 +16,7 @@
 class PacketReassembler
 {
  public:
-   /**
+  /**
    * @brief Processes an incoming packet and attempts to reassemble the full message.
    *
    * If the packet completes a sequence, the full payload is returned.
@@ -44,4 +44,29 @@ class PacketReassembler
   void reset();
 
  private:
+  /**
+   * @brief Maximum number of concurrent messages (sequences) allowed to prevent DoS/Memory exhaustion.
+   */
+  static constexpr size_t MAX_CONCURRENT_MESSAGES = 10;
+
+  
+  struct ReassemblySession
+  {
+    uint8_t totalChunks;
+    uint32_t firstReceivedTime;
+    uint32_t chunksReceivedCount;
+    /**
+     * @brief Storage for chunks.
+     * Use std::optional to identify missing gaps (unreceived chunks).
+     */
+    std::vector<std::optional<Packet>> chunks;
+
+    ReassemblySession(uint8_t total, uint32_t time)
+        : totalChunks(total),
+          firstReceivedTime(time),
+          chunksReceivedCount(0),
+          chunks(total, std::nullopt)  // Initialize vector with 'empty' slots
+    {
+    }
+  };
 }
