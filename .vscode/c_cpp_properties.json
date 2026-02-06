@@ -357,7 +357,7 @@
                 "SOC_MMU_PAGE_SIZE=CONFIG_MMU_PAGE_SIZE",
                 "IDF_VER=\"5.4.0\"",
                 "ESP_PLATFORM",
-                "PLATFORMIO=60118",
+                "PLATFORMIO=60119",
                 "ARDUINO_heltec_wifi_lora_32_V3",
                 "ARDUINO_USB_MODE=1",
                 "ARDUINO_RUNNING_CORE=1",
