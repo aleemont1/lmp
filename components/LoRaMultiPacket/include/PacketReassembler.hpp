@@ -1,7 +1,7 @@
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <vector>
-#include <map>
 
 #include "Packet.hpp"
 /**
@@ -50,6 +50,10 @@ class PacketReassembler
    */
   static constexpr size_t MAX_CONCURRENT_MESSAGES = 10;
 
+  /**
+   * @brief Keep track of the received chunks for each msgId, with other metadata.
+   *
+   */
   struct ReassemblySession
   {
     uint8_t totalChunks;
@@ -79,4 +83,4 @@ class PacketReassembler
    * @brief Internal helper to reconstruct payload from a complete session.
    */
   std::vector<uint8_t> reconstruct(const ReassemblySession &session);
-}
+};
