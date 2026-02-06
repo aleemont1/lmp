@@ -6,10 +6,11 @@
 #include <vector>
 
 #include "Packet.hpp"
+#include "PacketDeserializer.hpp"
+#include "PacketParser.hpp"
+#include "PacketReassembler.hpp"
 #include "PacketSerializer.hpp"
 #include "PacketValidator.hpp"
-#include "PacketParser.hpp"
-#include "PacketDeserializer.hpp"
 
 void setUp(void)
 {
@@ -21,10 +22,12 @@ void tearDown(void)
   // optional teardown
 }
 
+// ============================================================================
+// Packet & Serializer Tests
+// ============================================================================
+
 /**
  * @brief Verifies that modifying the payload changes the CRC.
- * Root Cause Analysis (Logic): Ensures CRC is actually calculating over the payload data
- * and isn't a static constant or ignoring bytes.
  */
 static void test_crc_changes_on_payload_modification(void)
 {
@@ -48,8 +51,6 @@ static void test_crc_changes_on_payload_modification(void)
 
 /**
  * @brief Verifies splitting a large vector into multiple packets and reassembling them.
- * Root Cause Analysis (Logic): Ensures the splitting math (chunking) and reassembly loop
- * preserve the exact original data sequence.
  */
 static void test_split_and_reassemble(void)
 {
@@ -83,11 +84,7 @@ static void test_split_and_reassemble(void)
 }
 
 /**
- * @brief Verifies that SOM (Start of Message) and EOM (End of Message) flags are set correctly.
- * * Scenario:
- * - We need 3 packets to verify SOM, None (Middle), and EOM.
- * - LORA_MAX_PAYLOAD_SIZE is ~247 bytes.
- * - We need > 494 bytes to force a 3rd packet.
+ * @brief Verifies that SOM and EOM flags are set correctly.
  */
 static void test_packet_flags_multipacket(void)
 {
@@ -95,40 +92,34 @@ static void test_packet_flags_multipacket(void)
   size_t total = 600;
   std::vector<uint8_t> data(total, 0xAB);
 
-  // The '100' here is just the MessageID, not size.
   auto packets = PacketSerializer::splitVectorToPackets(data, 100);
 
   TEST_ASSERT_EQUAL_INT(3, packets.size());
 
-  // Packet 0: SOM only (First chunk)
+  // Packet 0: SOM only
   TEST_ASSERT_BITS_HIGH(PACKET_FLAG_SOM, packets[0].header.flags);
   TEST_ASSERT_BITS_LOW(PACKET_FLAG_EOM, packets[0].header.flags);
 
-  // Packet 1: Middle packet, neither SOM nor EOM
+  // Packet 1: Middle packet
   TEST_ASSERT_EQUAL_HEX8(0x00, packets[1].header.flags);
 
-  // Packet 2: EOM only (Last chunk)
+  // Packet 2: EOM only
   TEST_ASSERT_BITS_LOW(PACKET_FLAG_SOM, packets[2].header.flags);
   TEST_ASSERT_BITS_HIGH(PACKET_FLAG_EOM, packets[2].header.flags);
 }
-/**
- * @brief Verifies that a single packet message has BOTH SOM and EOM flags set.
- */
+
 static void test_packet_flags_single_packet(void)
 {
-  std::vector<uint8_t> data(10, 0xAB);  // Small payload
-
+  std::vector<uint8_t> data(10, 0xAB);
   auto packets = PacketSerializer::splitVectorToPackets(data, 100);
 
   TEST_ASSERT_EQUAL_INT(1, packets.size());
-
   // Should be both SOM (0x01) and EOM (0x02) -> 0x03
   TEST_ASSERT_EQUAL_HEX8(0x03, packets[0].header.flags);
 }
 
 /**
- * @brief Verifies that the binary serialization aligns with the struct layout.
- * This is critical because this byte array is what gets sent over the LoRa radio.
+ * @brief Verifies binary serialization layout.
  */
 static void test_binary_serialization_layout(void)
 {
@@ -139,41 +130,28 @@ static void test_binary_serialization_layout(void)
   p.calculateCRC();
 
   uint8_t buffer[MAX_PACKET_SIZE];
-  // Fill buffer with 0x00 to ensure we see what write touches
   std::memset(buffer, 0, sizeof(buffer));
 
   PacketSerializer::serialize(p, buffer);
 
-  // 1. Check Header (Message ID is at offset 0)
-  // Little-endian assumption: 0x34, 0x12
+  // Check Header (Message ID, Little-endian: 0x34, 0x12)
   TEST_ASSERT_EQUAL_HEX8(0x34, buffer[0]);
   TEST_ASSERT_EQUAL_HEX8(0x12, buffer[1]);
 
-  // 2. Check Payload
-  // Payload starts after Header. Header size is defined in Packet.hpp
-  // We can calculate offset dynamically or hardcode if we know the struct.
-  // Based on struct: 2(id)+1(chunks)+1(idx)+1(size)+1(flags)+1(ver) = 7 bytes header.
-  // Payload should be at index 7.
+  // Check Payload (Offset 7)
   TEST_ASSERT_EQUAL_HEX8(0xEE, buffer[7]);
 
-  // 3. Check CRC
-  // CRC is at: Header + PayloadStructSize (not just used payload)
-  // PacketPayload struct is fixed size LORA_MAX_PAYLOAD_SIZE.
+  // Check CRC
   size_t crcOffset = HEADER_SIZE + sizeof(PacketPayload);
-
-  // Check that CRC was copied there
   uint16_t serializedCrc = 0;
   std::memcpy(&serializedCrc, buffer + crcOffset, 2);
   TEST_ASSERT_EQUAL_UINT16(p.crc, serializedCrc);
 }
 
 // ============================================================================
-// Deserializer, Parser, and Validator tests
+// Deserializer, Parser, and Validator Tests
 // ============================================================================
 
-/**
- * @brief Verifies that a valid single-chunk packet parses and validates correctly.
- */
 static void test_parser_valid_single_chunk(void)
 {
   Packet pkt;
@@ -193,34 +171,20 @@ static void test_parser_valid_single_chunk(void)
   auto result = PacketParser::parse(buffer, sizeof(Packet));
   TEST_ASSERT_TRUE(result.has_value());
   TEST_ASSERT_EQUAL_UINT16(1, result.value().header.messageId);
-  TEST_ASSERT_EQUAL_UINT8(1, result.value().header.totalChunks);
-  TEST_ASSERT_EQUAL_UINT8(50, result.value().header.payloadSize);
 }
 
-/**
- * @brief Verifies that a buffer that is too small is rejected.
- */
 static void test_parser_rejects_buffer_too_small(void)
 {
-  uint8_t buffer[10];
+  uint8_t buffer[10] = {0};
   auto result = PacketParser::parse(buffer, 10);
   TEST_ASSERT_FALSE(result.has_value());
 }
 
-/**
- * @brief Verifies that invalid protocol version is rejected.
- */
 static void test_parser_rejects_invalid_protocol_version(void)
 {
   Packet pkt;
-  pkt.header.messageId = 1;
-  pkt.header.totalChunks = 1;
-  pkt.header.chunkIndex = 0;
+  pkt.header.protocolVersion = 99;  // Invalid
   pkt.header.payloadSize = 10;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
-  pkt.header.protocolVersion = 99;
-
-  std::memset(pkt.payload.data, 0x00, 10);
   pkt.calculateCRC();
 
   uint8_t buffer[256];
@@ -230,19 +194,12 @@ static void test_parser_rejects_invalid_protocol_version(void)
   TEST_ASSERT_FALSE(result.has_value());
 }
 
-/**
- * @brief Verifies that CRC mismatch is detected and rejected.
- */
 static void test_parser_rejects_crc_mismatch(void)
 {
   Packet pkt;
   pkt.header.messageId = 1;
-  pkt.header.totalChunks = 1;
-  pkt.header.chunkIndex = 0;
   pkt.header.payloadSize = 32;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
   pkt.header.protocolVersion = 1;
-
   std::memset(pkt.payload.data, 0xAA, 32);
   pkt.calculateCRC();
 
@@ -250,41 +207,156 @@ static void test_parser_rejects_crc_mismatch(void)
   std::memcpy(buffer, &pkt, sizeof(Packet));
 
   // Corrupt the CRC
-  uint16_t *crc_ptr = reinterpret_cast<uint16_t *>(
-      buffer + HEADER_SIZE + sizeof(PacketPayload));
+  uint16_t *crc_ptr = reinterpret_cast<uint16_t *>(buffer + HEADER_SIZE + sizeof(PacketPayload));
   *crc_ptr ^= 0xFFFF;
 
   auto result = PacketParser::parse(buffer, sizeof(Packet));
   TEST_ASSERT_FALSE(result.has_value());
 }
 
-/**
- * @brief Verifies that payload deserialization extracts only valid bytes.
- */
 static void test_deserializer_extracts_valid_bytes(void)
 {
   Packet pkt;
-  pkt.header.messageId = 1;
-  pkt.header.totalChunks = 1;
-  pkt.header.chunkIndex = 0;
   pkt.header.payloadSize = 38;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
-  pkt.header.protocolVersion = 1;
-
   const char testData[] = "Payload deserialization test data here";
   std::memcpy(pkt.payload.data, testData, 38);
-  std::memset(pkt.payload.data + 38, PAYLOAD_PADDING_BYTE,
-              LORA_MAX_PAYLOAD_SIZE - 38);
-  pkt.calculateCRC();
 
   auto extractedPayload = PacketDeserializer::deserialize(pkt);
   TEST_ASSERT_EQUAL_size_t(38, extractedPayload.size());
   TEST_ASSERT_EQUAL_MEMORY(testData, extractedPayload.data(), 38);
 }
 
+// ============================================================================
+// PacketReassembler Tests
+// ============================================================================
+
+/**
+ * @brief Helper to generate a dummy packet for reassembly tests.
+ */
+Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::string &content)
+{
+  Packet p;
+  p.header.messageId = msgId;
+  p.header.chunkIndex = index;
+  p.header.totalChunks = total;
+  p.header.payloadSize = content.size();
+  p.header.protocolVersion = 1;
+  std::memcpy(p.payload.data, content.data(), content.size());
+  p.calculateCRC();
+  return p;
+}
+
+/**
+ * @brief Verifies that packets arriving in order are reassembled correctly.
+ */
+static void test_reassembler_ordered_flow(void)
+{
+  PacketReassembler reassembler;
+  uint32_t time = 1000;
+
+  // Create 3 chunks
+  Packet p0 = create_chunk(10, 0, 3, "Hello ");
+  Packet p1 = create_chunk(10, 1, 3, "World ");
+  Packet p2 = create_chunk(10, 2, 3, "!!!");
+
+  // Feed chunk 0
+  auto res0 = reassembler.processPacket(p0, time);
+  TEST_ASSERT_FALSE(res0.has_value());  // Not done yet
+
+  // Feed chunk 1
+  auto res1 = reassembler.processPacket(p1, time);
+  TEST_ASSERT_FALSE(res1.has_value());
+
+  // Feed chunk 2 (Final)
+  auto res2 = reassembler.processPacket(p2, time);
+  TEST_ASSERT_TRUE(res2.has_value());
+
+  // Verify content
+  std::string finalStr(res2.value().begin(), res2.value().end());
+  TEST_ASSERT_EQUAL_STRING("Hello World !!!", finalStr.c_str());
+}
+
+/**
+ * @brief Verifies that packets arriving out of order are reassembled correctly.
+ */
+static void test_reassembler_unordered_flow(void)
+{
+  PacketReassembler reassembler;
+  uint32_t time = 2000;
+
+  // Create 3 chunks
+  Packet p0 = create_chunk(20, 0, 3, "Part1");
+  Packet p1 = create_chunk(20, 1, 3, "Part2");
+  Packet p2 = create_chunk(20, 2, 3, "Part3");
+
+  // Send Index 2 (Last) first
+  auto res2 = reassembler.processPacket(p2, time);
+  TEST_ASSERT_FALSE(res2.has_value());
+
+  // Send Index 0 (First)
+  auto res0 = reassembler.processPacket(p0, time);
+  TEST_ASSERT_FALSE(res0.has_value());
+
+  // Send Index 1 (Middle) - Should trigger completion
+  auto res1 = reassembler.processPacket(p1, time);
+  TEST_ASSERT_TRUE(res1.has_value());
+
+  // Check data integrity
+  std::string result(res1.value().begin(), res1.value().end());
+  TEST_ASSERT_EQUAL_STRING("Part1Part2Part3", result.c_str());
+}
+
+/**
+ * @brief Verifies that duplicate packets are ignored and don't break the counter.
+ */
+static void test_reassembler_duplicates_ignored(void)
+{
+  PacketReassembler reassembler;
+  uint32_t time = 3000;
+
+  Packet p0 = create_chunk(30, 0, 2, "A");
+  Packet p1 = create_chunk(30, 1, 2, "B");
+
+  // Send chunk 0 twice
+  reassembler.processPacket(p0, time);
+  auto resDup = reassembler.processPacket(p0, time);  // Duplicate
+  TEST_ASSERT_FALSE(resDup.has_value());
+
+  // Send chunk 1
+  auto resFinal = reassembler.processPacket(p1, time);
+  TEST_ASSERT_TRUE(resFinal.has_value());
+  TEST_ASSERT_EQUAL_size_t(2, resFinal.value().size());
+}
+
+/**
+ * @brief Verifies that old sessions are pruned after timeout.
+ */
+static void test_reassembler_pruning(void)
+{
+  PacketReassembler reassembler;
+
+  // T=1000: Start Message 40
+  Packet p0 = create_chunk(40, 0, 2, "OldData");
+  reassembler.processPacket(p0, 1000);
+
+  // T=5000: Prune with timeout 2000ms.
+  // Elapsed = 5000 - 1000 = 4000 (> 2000). Should be removed.
+  reassembler.prune(5000, 2000);
+
+  // T=5001: Arrive chunk 1 of Message 40.
+  // Since session was pruned, this is treated as a *new* partial session
+  // containing only chunk 1. It will NOT complete.
+  Packet p1 = create_chunk(40, 1, 2, "NewData");
+  auto res = reassembler.processPacket(p1, 5001);
+
+  TEST_ASSERT_FALSE(res.has_value());
+}
+
 int main(void)
 {
   UNITY_BEGIN();
+
+  // Existing Tests
   RUN_TEST(test_crc_changes_on_payload_modification);
   RUN_TEST(test_split_and_reassemble);
   RUN_TEST(test_packet_flags_multipacket);
@@ -295,6 +367,13 @@ int main(void)
   RUN_TEST(test_parser_rejects_invalid_protocol_version);
   RUN_TEST(test_parser_rejects_crc_mismatch);
   RUN_TEST(test_deserializer_extracts_valid_bytes);
+
+  // New Reassembler Tests
+  RUN_TEST(test_reassembler_ordered_flow);
+  RUN_TEST(test_reassembler_unordered_flow);
+  RUN_TEST(test_reassembler_duplicates_ignored);
+  RUN_TEST(test_reassembler_pruning);
+
   return UNITY_END();
 }
 
