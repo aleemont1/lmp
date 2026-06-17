@@ -8,7 +8,7 @@
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #else
-// Mock per ambiente nativo (printf o nulla)
+// Mock for native environment (printf or nothing)
 #include <iostream>
 #define ESP_LOGI(tag, format, ...) printf("LOG [%s]: " format "\n", tag, ##__VA_ARGS__)
 #endif
@@ -35,7 +35,12 @@ void Packet::calculateCRC()
   }
 
   // Process only valid payload bytes (up to payloadSize), exclude padding
-  for (size_t i = 0; i < this->header.payloadSize; i++)
+  size_t bytesToProcess = this->header.payloadSize;
+  if (bytesToProcess > LORA_MAX_PAYLOAD_SIZE)
+  {
+    bytesToProcess = LORA_MAX_PAYLOAD_SIZE;
+  }
+  for (size_t i = 0; i < bytesToProcess; i++)
   {
     crc ^= this->payload.data[i];
     for (uint8_t j = 0; j < 8; j++)
@@ -50,7 +55,7 @@ void Packet::calculateCRC()
   this->crc = crc;
 }
 
-void Packet::printPacket()
+void Packet::printPacket() const
 {
   static const char *TAG = "LoRaMultiPacket";
   ESP_LOGI(TAG, "######## HEADER ########");
@@ -60,15 +65,15 @@ void Packet::printPacket()
   bool som = (this->header.flags & PACKET_FLAG_SOM) != 0;
   bool eom = (this->header.flags & PACKET_FLAG_EOM) != 0;
   bool ackReq = (this->header.flags & PACKET_FLAG_ACK_REQ) != 0;
+  bool ack = (this->header.flags & PACKET_FLAG_ACK) != 0;
 
-  ESP_LOGI(TAG, "Flags: 0x%02X (SOM=%d, EOM=%d, ACKReq=%d)",
-           (unsigned)this->header.flags, som ? 1 : 0, eom ? 1 : 0, ackReq ? 1 : 0);
+  ESP_LOGI(TAG, "Flags: 0x%02X (SOM=%d, EOM=%d, ACKReq=%d, ACK=%d)",
+           (unsigned)this->header.flags, som ? 1 : 0, eom ? 1 : 0, ackReq ? 1 : 0, ack ? 1 : 0);
 
-  ESP_LOGI(TAG, "Total Chunks: %u", (unsigned)this->header.totalChunks);
-  ESP_LOGI(TAG, "Chunk Index (0-based): %u (1-based: %u)", (unsigned)this->header.chunkIndex,
-           (unsigned)(this->header.chunkIndex + 1));
-  ESP_LOGI(TAG, "Payload Size: %u", (unsigned)this->header.payloadSize);
-  ESP_LOGI(TAG, "Protocol Version: %u", (unsigned)this->header.protocolVersion);
+  ESP_LOGI(TAG, "Total Chunks:\t%u", (unsigned)this->header.totalChunks);
+  ESP_LOGI(TAG, "Chunk Index:\t%u",  (unsigned)(this->header.chunkIndex + 1));
+  ESP_LOGI(TAG, "Payload Size:\t%u", (unsigned)this->header.payloadSize);
+  ESP_LOGI(TAG, "Protocol Version:\t%u", (unsigned)this->header.protocolVersion);
   ESP_LOGI(TAG, "######## PAYLOAD ########");
 
   int toPrint = this->header.payloadSize;

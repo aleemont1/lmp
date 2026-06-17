@@ -32,6 +32,7 @@ constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
 constexpr uint8_t PACKET_FLAG_SOM = 0x01;      ///< Start of Message: This packet is the first chunk.
 constexpr uint8_t PACKET_FLAG_EOM = 0x02;      ///< End of Message: This packet is the last chunk.
 constexpr uint8_t PACKET_FLAG_ACK_REQ = 0x04;  ///< Acknowledgement Requested (optional feature).
+constexpr uint8_t PACKET_FLAG_ACK = 0x08;      ///< Selective Acknowledgment (SACK) feedback packet.
 /** @} */
 
 #pragma pack(push, 1)  // Ensure no compiler padding is inserted between fields
@@ -133,6 +134,6 @@ struct Packet
    * @brief Prints a human-readable summary of the packet to the log output.
    * Useful for debugging transmission logic.
    */
-  void printPacket();
+  void printPacket() const;
 };
 #pragma pack(pop)

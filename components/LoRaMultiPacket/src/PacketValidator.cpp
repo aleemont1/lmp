@@ -1,4 +1,5 @@
 #include "PacketValidator.hpp"
+#include <cstdio>
 
 std::optional<ValidationError> PacketValidator::validate(const Packet &packet)
 {
@@ -83,6 +84,11 @@ std::optional<ValidationError> PacketValidator::validateHeader(
 std::optional<ValidationError> PacketValidator::validateFlags(
     const PacketHeader &header)
 {
+  if (header.flags & PACKET_FLAG_ACK)
+  {
+    return std::nullopt; // Skip boundary check for feedback frames
+  }
+
   bool isFirstChunk = (header.chunkIndex == 0);
   bool isLastChunk = (header.chunkIndex == header.totalChunks - 1);
 
@@ -133,10 +139,11 @@ std::optional<ValidationError> PacketValidator::validateCRC(
   // Compare calculated CRC with received CRC
   if (tempPacket.crc != receivedCrc)
   {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "CRC mismatch: expected 0x%04X, received 0x%04X", tempPacket.crc, receivedCrc);
     return ValidationError(
         ValidationError::Type::CRC_MISMATCH,
-        "CRC mismatch: expected 0x" + std::string(4, '0') + ", received 0x" +
-            std::string(4, '0'));
+        std::string(buf));
   }
 
   return std::nullopt;

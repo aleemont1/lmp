@@ -9,10 +9,13 @@ void PacketSerializer::serialize(const Packet &packet, uint8_t *buffer)
 {
   // Copy header
   std::memcpy(buffer, &packet.header, HEADER_SIZE);
-  // Copy payload (full fixed payload size)
-  std::memcpy(buffer + HEADER_SIZE, &packet.payload, sizeof(PacketPayload));
-  // Copy CRC (2 bytes)
-  std::memcpy(buffer + HEADER_SIZE + sizeof(PacketPayload), &packet.crc,
+  // Copy payload (only the actual valid bytes)
+  if (packet.header.payloadSize > 0)
+  {
+    std::memcpy(buffer + HEADER_SIZE, packet.payload.data, packet.header.payloadSize);
+  }
+  // Copy CRC (2 bytes) immediately after the payload
+  std::memcpy(buffer + HEADER_SIZE + packet.header.payloadSize, &packet.crc,
               CRC_SIZE);
 }
 
@@ -24,8 +27,12 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
 
   size_t offset = 0;
   uint16_t messageId = packetNumberStart;
-  uint8_t totalChunks = static_cast<uint8_t>(
-      (length + LORA_MAX_PAYLOAD_SIZE - 1) / LORA_MAX_PAYLOAD_SIZE);
+  size_t numChunks = (length + LORA_MAX_PAYLOAD_SIZE - 1) / LORA_MAX_PAYLOAD_SIZE;
+  if (numChunks > 255)
+  {
+    return result; // Payload exceeds maximum segmentable protocol size
+  }
+  uint8_t totalChunks = static_cast<uint8_t>(numChunks);
 
   uint8_t chunkIndex = 0;
   while (offset < length)

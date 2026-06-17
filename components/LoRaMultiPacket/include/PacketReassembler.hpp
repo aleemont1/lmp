@@ -44,7 +44,27 @@ class PacketReassembler
    */
   void reset();
 
+  /**
+   * @brief Generates a bitmap of successfully received chunks for a given message ID.
+   *
+   * @param messageId The message ID of the session.
+   * @param bitmapOut Output vector to write the bitmap.
+   * @return true if session was found, false otherwise.
+   */
+  bool getReceivedBitmap(uint16_t messageId, std::vector<uint8_t>& bitmapOut) const;
+
+  /**
+   * @brief Checks if a message ID was recently completed.
+   */
+  bool isCompleted(uint16_t messageId) const;
+
+  /**
+   * @brief Marks a message ID as completed, adding it to the history.
+   */
+  void markCompleted(uint16_t messageId);
+
  private:
+  static constexpr size_t MAX_COMPLETED_HISTORY = 16;
   /**
    * @brief Maximum number of concurrent messages (sequences) allowed to prevent DoS/Memory exhaustion.
    */
@@ -58,18 +78,15 @@ class PacketReassembler
   {
     uint8_t totalChunks;
     uint32_t firstReceivedTime;
-    uint32_t chunksReceivedCount;
     /**
      * @brief Storage for chunks.
-     * Use std::optional to identify missing gaps (unreceived chunks).
+     * Maps chunk index -> Packet. Prevents huge pre-allocations.
      */
-    std::vector<std::optional<Packet>> chunks;
+    std::map<uint8_t, Packet> chunks;
 
     ReassemblySession(uint8_t total, uint32_t time)
         : totalChunks(total),
-          firstReceivedTime(time),
-          chunksReceivedCount(0),
-          chunks(total, std::nullopt)  // Initialize vector with 'empty' slots
+          firstReceivedTime(time)
     {
     }
   };
@@ -78,6 +95,11 @@ class PacketReassembler
    * @brief Map of Message ID -> Reassembly Session.
    */
   std::map<uint16_t, ReassemblySession> sessions_;
+
+  /**
+   * @brief History of recently completed message IDs.
+   */
+  std::vector<uint16_t> completedMessages_;
 
   /**
    * @brief Internal helper to reconstruct payload from a complete session.
