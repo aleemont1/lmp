@@ -204,6 +204,7 @@ bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
         pkt.header.flags |= PACKET_FLAG_ACK_REQ;
         pkt.calculateCRC();
 
+        stats_.chunksTx++; // Fix metric: increment on timeout retry
         int state = transmitPacket(pkt, "RETRY PACKET");
         if (state != RADIOLIB_ERR_NONE)
         {
@@ -373,6 +374,11 @@ void LoRaProtocol::sendSACK(uint16_t messageId, uint8_t totalChunks, bool allRec
   }
   ESP_LOGI(TAG, "Sending SACK for MsgID %u (Len=%u, AllReceived=%d) Bitmap Bytes: %s", 
            messageId, (unsigned)bitmap.size(), allReceived ? 1 : 0, hexBuf);
+
+  // Give the transmitting node enough time to switch from TX to RX mode.
+  // The sender delays 5ms after TX_DONE, then issues SPI commands to enter RX.
+  // If we reply instantly, the sender misses the SACK preamble and times out.
+  hal_->delay(25);
 
   int state = transmitPacket(ackPacket, "SACK PACKET");
   if (state != RADIOLIB_ERR_NONE)
