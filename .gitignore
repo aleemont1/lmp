@@ -87,3 +87,13 @@ __pycache__/
 # -----------------------
 sdkconfig.*
 !sdkconfig.defaults
+
+# -----------------------
+# Tests, Dashboards & Trials
+# -----------------------
+tools/
+plots/
+*.csv
+src/*Test.cpp
+.venv/
+venv/
