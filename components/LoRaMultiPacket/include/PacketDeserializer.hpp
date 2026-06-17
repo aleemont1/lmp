@@ -25,15 +25,10 @@ class PacketDeserializer
 {
  public:
   /**
-   * @brief Extracts payload data from a validated packet.
+   * @brief Deserializes a packet and appends its valid payload bytes to the target buffer.
    *
-   * Extracts only the valid payload bytes from a Packet structure,
-   * respecting the payloadSize field and excluding padding.
-   *
-   * **Precondition:** The packet should have been validated via PacketValidator.
-   *
-   * @param packet The validated packet to extract from
-   * @return Vector containing the extracted payload bytes (payloadSize bytes)
+   * @param packet The validated packet.
+   * @param targetBuffer The buffer to append the extracted payload to.
    */
-  static std::vector<uint8_t> deserialize(const Packet &packet);
+  static void deserialize(const Packet &packet, std::vector<uint8_t> &targetBuffer);
 };
