@@ -65,3 +65,25 @@ compile_commands.json
 .Trashes
 Thumbs.db
 Desktop.ini
+
+# -----------------------
+# Agent / Skills Tooling
+# -----------------------
+.agents/
+claude-skills/
+dependencies.lock
+manage_skills.py
+
+# -----------------------
+# Logs and Data
+# -----------------------
+*.log
+*.csv
+__pycache__/
+.unit_test_build/
+
+# -----------------------
+# Configs
+# -----------------------
+sdkconfig.*
+!sdkconfig.defaults

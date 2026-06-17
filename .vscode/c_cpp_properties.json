@@ -9,7 +9,6 @@
             "name": "PlatformIO",
             "includePath": [
                 "/home/aleemont/uni/LoRaMultiPacket/src",
-                "/home/aleemont/uni/LoRaMultiPacket/.pio/libdeps/heltec_wifi_lora_32_V3/RadioLib/src",
                 "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/esp32s3/include",
                 "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/include",
                 "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/deprecated_include",
@@ -173,6 +172,8 @@
                 "/home/aleemont/.platformio/packages/framework-espidf/components/touch_element/include",
                 "/home/aleemont/.platformio/packages/framework-espidf/components/usb/include",
                 "/home/aleemont/.platformio/packages/framework-espidf/components/wifi_provisioning/include",
+                "/home/aleemont/uni/LoRaMultiPacket/components/RadioLib",
+                "/home/aleemont/uni/LoRaMultiPacket/components/RadioLib/src",
                 "/home/aleemont/uni/LoRaMultiPacket/components/LoRaMultiPacket/include",
                 ""
             ],
@@ -180,7 +181,6 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
                     "/home/aleemont/uni/LoRaMultiPacket/src",
-                    "/home/aleemont/uni/LoRaMultiPacket/.pio/libdeps/heltec_wifi_lora_32_V3/RadioLib/src",
                     "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/esp32s3/include",
                     "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/include",
                     "/home/aleemont/.platformio/packages/framework-espidf/components/xtensa/deprecated_include",
@@ -344,6 +344,8 @@
                     "/home/aleemont/.platformio/packages/framework-espidf/components/touch_element/include",
                     "/home/aleemont/.platformio/packages/framework-espidf/components/usb/include",
                     "/home/aleemont/.platformio/packages/framework-espidf/components/wifi_provisioning/include",
+                    "/home/aleemont/uni/LoRaMultiPacket/components/RadioLib",
+                    "/home/aleemont/uni/LoRaMultiPacket/components/RadioLib/src",
                     "/home/aleemont/uni/LoRaMultiPacket/components/LoRaMultiPacket/include",
                     ""
                 ]
@@ -362,6 +364,7 @@
                 "ARDUINO_USB_MODE=1",
                 "ARDUINO_RUNNING_CORE=1",
                 "ARDUINO_EVENT_RUNNING_CORE=1",
+                "ESP_PLATFORM",
                 ""
             ],
             "cStandard": "gnu17",
