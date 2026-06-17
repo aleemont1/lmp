@@ -27,55 +27,57 @@
 
 static const char *TAG = "HalTest";
 
-// 1. Istanziamo l'HAL con i pin SPI (SCK, MISO, MOSI)
-EspHal *hal = new EspHal(HELTEC_LORA_SCK, HELTEC_LORA_MISO, HELTEC_LORA_MOSI);
+// 1. Instantiate the HAL with SPI pins (SCK, MISO, MOSI)
+EspHal hal_inst(HELTEC_LORA_SCK, HELTEC_LORA_MISO, HELTEC_LORA_MOSI);
+EspHal *hal = &hal_inst;
 
-// 2. Istanziamo il modulo SX1262 usando l'HAL e i pin di controllo (NSS, DIO1, RST, BUSY)
-SX1262 radio = new Module(hal, HELTEC_LORA_NSS, HELTEC_LORA_DIO1, HELTEC_LORA_RST, HELTEC_LORA_BUSY);
+// 2. Instantiate the SX1262 module using the HAL and control pins (NSS, DIO1, RST, BUSY)
+Module radioModule_inst(hal, HELTEC_LORA_NSS, HELTEC_LORA_DIO1, HELTEC_LORA_RST, HELTEC_LORA_BUSY);
+SX1262 radio(&radioModule_inst);
 
 extern "C" void app_main(void)
 {
-  ESP_LOGI(TAG, "=== TEST HAL INIZIATO ===");
+  ESP_LOGI(TAG, "=== HAL TEST STARTED ===");
 
-  // 3. PASSAGGIO CRITICO: Accensione Vext (GPIO 36)
-  // Senza questo, il chip LoRa non riceve corrente.
+  // 3. CRITICAL STEP: Turn Vext Power ON (GPIO 36)
+  // Without this, the LoRa chip receives no power.
   gpio_reset_pin(HELTEC_POWER_CTRL);
   gpio_set_direction(HELTEC_POWER_CTRL, GPIO_MODE_OUTPUT);
-  gpio_set_level(HELTEC_POWER_CTRL, 0);  // LOW = Acceso
-  vTaskDelay(pdMS_TO_TICKS(100));        // Aspetta che la tensione si stabilizzi
+  gpio_set_level(HELTEC_POWER_CTRL, 0);  // LOW = ON
+  vTaskDelay(pdMS_TO_TICKS(100));        // Wait for voltage to stabilize
 
-  // 4. Inizializzazione RadioLib
-  // Se l'HAL funziona (SPI ok, GPIO ok), questo metodo restituisce 0 (RADIOLIB_ERR_NONE)
-  ESP_LOGI(TAG, "Inizializzazione SX1262...");
-  int state = radio.begin(868.0);  // Frequenza 868.0 MHz
+  // 4. RadioLib Initialization
+  // If the HAL works (SPI ok, GPIO ok), this method returns 0 (RADIOLIB_ERR_NONE)
+  ESP_LOGI(TAG, "Initializing SX1262...");
+  int state = radio.begin(868.0);  // Frequency 868.0 MHz
 
   if (state == RADIOLIB_ERR_NONE)
   {
-    ESP_LOGI(TAG, "SUCCESSO! Radio inizializzata correttamente.");
+    ESP_LOGI(TAG, "SUCCESS! Radio initialized successfully.");
   }
   else
   {
-    ESP_LOGE(TAG, "FALLITO. Codice errore: %d", state);
-    // Se fallisce qui, controlla i pin in EspHal.h o le saldature
+    ESP_LOGE(TAG, "FAILED. Error code: %d", state);
+    // If it fails here, check the pins in EspHal.h or solder joints
     while (true)
       vTaskDelay(1000);
   }
 
-  // 5. Loop di test trasmissione
+  // 5. Transmission test loop
   while (true)
   {
-    ESP_LOGI(TAG, "Tentativo di invio pacchetto RAW...");
+    ESP_LOGI(TAG, "Attempting raw packet transmission...");
 
-    // Invio semplice stringa (senza il tuo protocollo custom)
+    // Send a simple string (without custom protocol)
     state = radio.transmit("Test HAL OK!");
 
     if (state == RADIOLIB_ERR_NONE)
     {
-      ESP_LOGI(TAG, "TX Completata con successo!");
+      ESP_LOGI(TAG, "TX Completed successfully!");
     }
     else
     {
-      ESP_LOGE(TAG, "Errore TX: %d", state);
+      ESP_LOGE(TAG, "TX Error: %d", state);
     }
 
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -96,69 +98,71 @@ extern "C" void app_main(void)
 
 static const char *TAG = "HalTestRX";
 
-// 1. Istanziamo l'HAL e il Modulo
-EspHal *hal = new EspHal(HELTEC_LORA_SCK, HELTEC_LORA_MISO, HELTEC_LORA_MOSI);
-SX1262 radio = new Module(hal, HELTEC_LORA_NSS, HELTEC_LORA_DIO1, HELTEC_LORA_RST, HELTEC_LORA_BUSY);
+// 1. Instantiate the HAL and the Module
+EspHal hal_inst(HELTEC_LORA_SCK, HELTEC_LORA_MISO, HELTEC_LORA_MOSI);
+EspHal *hal = &hal_inst;
+Module radioModule_inst(hal, HELTEC_LORA_NSS, HELTEC_LORA_DIO1, HELTEC_LORA_RST, HELTEC_LORA_BUSY);
+SX1262 radio(&radioModule_inst);
 
 extern "C" void app_main(void)
 {
-  ESP_LOGI(TAG, "=== TEST RICEVITORE (BYTE ARRAY) ===");
+  ESP_LOGI(TAG, "=== RECEIVER TEST (BYTE ARRAY) ===");
 
-  // 2. Accensione Vext
+  // 2. Vext Power ON
   gpio_reset_pin(HELTEC_POWER_CTRL);
   gpio_set_direction(HELTEC_POWER_CTRL, GPIO_MODE_OUTPUT);
   gpio_set_level(HELTEC_POWER_CTRL, 0);
   vTaskDelay(pdMS_TO_TICKS(100));
 
-  // 3. Init Manuale HAL
+  // 3. Manual HAL Init
   hal->init();
 
-  // 4. Avvio Radio
+  // 4. Start Radio
   int state = radio.begin(868.0);
   if (state == RADIOLIB_ERR_NONE)
   {
-    ESP_LOGI(TAG, "Radio Inizializzata! In attesa...");
+    ESP_LOGI(TAG, "Radio Initialized! Waiting...");
   }
   else
   {
-    ESP_LOGE(TAG, "Init Fallito: %d", state);
+    ESP_LOGE(TAG, "Init Failed: %d", state);
     while (true)
       vTaskDelay(1000);
   }
 
-  // 5. Loop di Ricezione
-  uint8_t rxBuffer[256];  // Buffer statico per i dati grezzi
+  // 5. Receive Loop
+  uint8_t rxBuffer[256];  // Static buffer for raw data
 
   while (true)
   {
-    // receive() in questo overload accetta (buffer, lunghezza_max)
+    // receive() in this overload accepts (buffer, max_length)
     state = radio.receive(rxBuffer, sizeof(rxBuffer));
 
     if (state == RADIOLIB_ERR_NONE)
     {
-      // Recuperiamo la lunghezza effettiva del pacchetto ricevuto
+      // Retrieve the actual length of the received packet
       size_t len = radio.getPacketLength();
 
-      ESP_LOGI(TAG, "PACCHETTO RICEVUTO! (Len: %d)", (int)len);
+      ESP_LOGI(TAG, "PACKET RECEIVED! (Len: %d)", (int)len);
 
-      // Stampiamo il contenuto come stringa (se è testo) o hex
-      // Nota: rxBuffer non è necessariamente null-terminated, quindi usiamo il formato %.*s
-      ESP_LOGI(TAG, "Dati: %.*s", (int)len, rxBuffer);
+      // Print the content as a string (if text) or hex
+      // Note: rxBuffer is not necessarily null-terminated, so we use %.*s format
+      ESP_LOGI(TAG, "Data: %.*s", (int)len, rxBuffer);
 
       ESP_LOGI(TAG, "RSSI: %.2f dBm", radio.getRSSI());
       ESP_LOGI(TAG, "SNR:  %.2f dB", radio.getSNR());
     }
     else if (state == RADIOLIB_ERR_RX_TIMEOUT)
     {
-      // Timeout: normale, riproviamo
+      // Timeout: normal, retry
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH)
     {
-      ESP_LOGW(TAG, "Errore CRC");
+      ESP_LOGW(TAG, "CRC Error");
     }
     else
     {
-      ESP_LOGE(TAG, "Errore RX: %d", state);
+      ESP_LOGE(TAG, "RX Error: %d", state);
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));

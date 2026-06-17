@@ -14,7 +14,7 @@ EspHal::EspHal(int8_t sck, int8_t miso, int8_t mosi)
       _sck(sck),
       _miso(miso),
       _mosi(mosi),
-      spi(nullptr) {}  // Inizializza a NULL
+      spi(nullptr) {}  // Initialize to NULL
 
 void EspHal::init()
 {
@@ -50,45 +50,45 @@ uint32_t EspHal::digitalRead(uint32_t pin)
 
 void EspHal::spiBegin()
 {
-  // Evita di reinizializzare se è già attivo
+  // Avoid re-initialization if already active
   if (spi != nullptr)
   {
-    ESP_LOGW(TAG, "SPI già inizializzato, salto.");
+    ESP_LOGW(TAG, "SPI already initialized, skipping.");
     return;
   }
 
-  ESP_LOGI(TAG, "Inizializzazione SPI bus...");
+  ESP_LOGI(TAG, "Initializing SPI bus...");
   spi_bus_config_t buscfg = {};
   buscfg.mosi_io_num = _mosi;
   buscfg.miso_io_num = _miso;
   buscfg.sclk_io_num = _sck;
   buscfg.quadwp_io_num = -1;
   buscfg.quadhd_io_num = -1;
-  buscfg.max_transfer_sz = 0;
+  buscfg.max_transfer_sz = 1024;
 
-  // Inizializza il bus FSPI (SPI2)
+  // Initialize FSPI bus (SPI2) with DMA enabled to support transactions > 32 bytes (needed for LoRa packets)
   esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
   if (ret != ESP_OK)
   {
-    ESP_LOGE(TAG, "Fallito spi_bus_initialize: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "spi_bus_initialize failed: %s", esp_err_to_name(ret));
     return;
   }
 
   spi_device_interface_config_t devcfg = {};
   devcfg.clock_speed_hz = 4000000;  // 4 MHz
   devcfg.mode = 0;
-  devcfg.spics_io_num = -1;  // Gestito manualmente via digitalWrite (NSS)
+  devcfg.spics_io_num = -1;  // Managed manually via digitalWrite (NSS)
   devcfg.queue_size = 7;
 
   ret = spi_bus_add_device(SPI2_HOST, &devcfg, &spi);
   if (ret != ESP_OK)
   {
-    ESP_LOGE(TAG, "Fallito spi_bus_add_device: %s", esp_err_to_name(ret));
-    spi = nullptr;  // Assicura che sia null
+    ESP_LOGE(TAG, "spi_bus_add_device failed: %s", esp_err_to_name(ret));
+    spi = nullptr;  // Ensure it is null
   }
   else
   {
-    ESP_LOGI(TAG, "SPI Configurato Correttamente!");
+    ESP_LOGI(TAG, "SPI Configured Correctly!");
   }
 }
 
@@ -96,10 +96,10 @@ void EspHal::spiBeginTransaction() {}
 
 void EspHal::spiTransfer(uint8_t *out, size_t len, uint8_t *in)
 {
-  // Protezione contro il crash: se SPI non è pronto, non fare nulla
+  // Protection against crash: if SPI is not ready, do nothing
   if (spi == nullptr)
   {
-    ESP_LOGE(TAG, "ERRORE CRITICO: Tentativo di spiTransfer con SPI non inizializzato!");
+    ESP_LOGE(TAG, "CRITICAL ERROR: Attempted spiTransfer with uninitialized SPI!");
     return;
   }
 
@@ -112,7 +112,7 @@ void EspHal::spiTransfer(uint8_t *out, size_t len, uint8_t *in)
   esp_err_t ret = spi_device_transmit(spi, &t);
   if (ret != ESP_OK)
   {
-    ESP_LOGE(TAG, "Errore trasmissione SPI: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "SPI transmission error: %s", esp_err_to_name(ret));
   }
 }
 
@@ -130,7 +130,11 @@ void EspHal::spiEnd()
 
 void EspHal::delay(unsigned long ms)
 {
-  vTaskDelay(pdMS_TO_TICKS(ms));
+  if (ms > 0)
+  {
+    TickType_t ticks = pdMS_TO_TICKS(ms);
+    vTaskDelay(ticks > 0 ? ticks : 1);
+  }
 }
 
 void EspHal::delayMicroseconds(unsigned long us)
@@ -155,7 +159,7 @@ long EspHal::pulseIn(uint32_t pin, uint32_t state, unsigned long timeout)
 
 void EspHal::attachInterrupt(uint32_t interruptNum, void (*interruptCb)(void), uint32_t mode)
 {
-  // Polling mode, interrupt non usati
+  // Polling mode, interrupts not used
 }
 
 void EspHal::detachInterrupt(uint32_t interruptNum)
