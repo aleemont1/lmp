@@ -71,7 +71,16 @@ bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
   {
     uint16_t msgId = packets[0].header.messageId;
     uint8_t totalChunks = static_cast<uint8_t>(packets.size());
-    constexpr uint32_t ACK_TIMEOUT_MS = 1000;
+    
+    // Calculate Dynamic Timeout (using RadioLib's getTimeOnAir which returns microseconds)
+    size_t maxPacketLen = HEADER_SIZE + LORA_MAX_PAYLOAD_SIZE + CRC_SIZE;
+    uint32_t toaDataMs = radio_->getTimeOnAir(maxPacketLen) / 1000;
+    size_t sackLen = HEADER_SIZE + ((totalChunks + 7) / 8) + CRC_SIZE;
+    uint32_t toaSackMs = radio_->getTimeOnAir(sackLen) / 1000;
+    
+    // 1.5 safety margin on cumulative airtime + 25ms physical guard delay
+    uint32_t ACK_TIMEOUT_MS = static_cast<uint32_t>(1.5 * (toaDataMs * totalChunks + toaSackMs) + 25);
+    if (ACK_TIMEOUT_MS < 1000) ACK_TIMEOUT_MS = 1000; // Minimum 1 second fallback
     constexpr int MAX_RETRIES = 5;
     int retries = 0;
 
