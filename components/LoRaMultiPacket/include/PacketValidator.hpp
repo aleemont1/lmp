@@ -14,15 +14,15 @@ struct ValidationError
 {
   enum class Type
   {
-    BUFFER_TOO_SMALL,           ///< Provided buffer is smaller than minimum packet size
-    INVALID_PROTOCOL_VERSION,   ///< Protocol version not supported
-    INVALID_TOTAL_CHUNKS,       ///< totalChunks == 0 or exceeds MAX (255)
-    INVALID_CHUNK_INDEX,        ///< chunkIndex >= totalChunks
-    INVALID_PAYLOAD_SIZE,       ///< payloadSize > LORA_MAX_PAYLOAD_SIZE or (not last chunk && payloadSize != LORA_MAX_PAYLOAD_SIZE)
-    INVALID_MESSAGE_ID,         ///< messageId == 0 (reserved)
-    CRC_MISMATCH,               ///< CRC validation failed
-    INVALID_SOM_FLAG,           ///< SOM flag not set on chunk 0
-    INVALID_EOM_FLAG,           ///< EOM flag not set on last chunk
+    BUFFER_TOO_SMALL,          ///< Provided buffer is smaller than minimum packet size
+    INVALID_PROTOCOL_VERSION,  ///< Protocol version not supported
+    INVALID_TOTAL_CHUNKS,      ///< totalChunks == 0 or exceeds MAX (255)
+    INVALID_CHUNK_INDEX,       ///< chunkIndex >= totalChunks
+    INVALID_PAYLOAD_SIZE,      ///< payloadSize > LORA_MAX_PAYLOAD_SIZE or (not last chunk && payloadSize != LORA_MAX_PAYLOAD_SIZE)
+    INVALID_MESSAGE_ID,        ///< messageId == 0 (reserved)
+    CRC_MISMATCH,              ///< CRC validation failed
+    INVALID_SOM_FLAG,          ///< SOM flag not set on chunk 0
+    INVALID_EOM_FLAG,          ///< EOM flag not set on last chunk
   };
 
   Type type;

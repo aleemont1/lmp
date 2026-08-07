@@ -268,7 +268,7 @@ static Packet create_valid_base_packet()
 static void test_validator_invalid_protocol_version(void)
 {
   Packet p = create_valid_base_packet();
-  p.header.protocolVersion = 2; // Supported is 1
+  p.header.protocolVersion = 2;  // Supported is 1
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -278,7 +278,7 @@ static void test_validator_invalid_protocol_version(void)
 static void test_validator_invalid_message_id(void)
 {
   Packet p = create_valid_base_packet();
-  p.header.messageId = 0; // Reserved
+  p.header.messageId = 0;  // Reserved
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -288,7 +288,7 @@ static void test_validator_invalid_message_id(void)
 static void test_validator_invalid_total_chunks(void)
 {
   Packet p = create_valid_base_packet();
-  p.header.totalChunks = 0; // Invalid
+  p.header.totalChunks = 0;  // Invalid
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -299,8 +299,8 @@ static void test_validator_invalid_chunk_index(void)
 {
   Packet p = create_valid_base_packet();
   p.header.totalChunks = 3;
-  p.header.chunkIndex = 3; // Must be < totalChunks (0, 1, 2)
-  p.header.flags = 0; // Clear SOM/EOM to avoid flag errors first
+  p.header.chunkIndex = 3;  // Must be < totalChunks (0, 1, 2)
+  p.header.flags = 0;       // Clear SOM/EOM to avoid flag errors first
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -310,7 +310,7 @@ static void test_validator_invalid_chunk_index(void)
 static void test_validator_invalid_payload_size_too_large(void)
 {
   Packet p = create_valid_base_packet();
-  p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE + 1; // Exceeds limit
+  p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE + 1;  // Exceeds limit
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -322,8 +322,8 @@ static void test_validator_invalid_payload_size_non_final_partial(void)
   Packet p = create_valid_base_packet();
   p.header.totalChunks = 2;
   p.header.chunkIndex = 0;
-  p.header.payloadSize = 10; // Non-final chunk must be full size (LORA_MAX_PAYLOAD_SIZE)
-  p.header.flags = PACKET_FLAG_SOM; // Valid flags for chunk 0
+  p.header.payloadSize = 10;         // Non-final chunk must be full size (LORA_MAX_PAYLOAD_SIZE)
+  p.header.flags = PACKET_FLAG_SOM;  // Valid flags for chunk 0
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -336,7 +336,7 @@ static void test_validator_invalid_som_flag_missing(void)
   p.header.totalChunks = 2;
   p.header.chunkIndex = 0;
   p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE;
-  p.header.flags = 0; // Missing SOM
+  p.header.flags = 0;  // Missing SOM
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -349,7 +349,7 @@ static void test_validator_invalid_som_flag_unexpected(void)
   p.header.totalChunks = 2;
   p.header.chunkIndex = 1;
   p.header.payloadSize = 10;
-  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM; // SOM unexpected on chunk 1
+  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;  // SOM unexpected on chunk 1
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -362,7 +362,7 @@ static void test_validator_invalid_eom_flag_missing(void)
   p.header.totalChunks = 2;
   p.header.chunkIndex = 1;
   p.header.payloadSize = 10;
-  p.header.flags = 0; // Missing EOM on final chunk
+  p.header.flags = 0;  // Missing EOM on final chunk
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -375,7 +375,7 @@ static void test_validator_invalid_eom_flag_unexpected(void)
   p.header.totalChunks = 2;
   p.header.chunkIndex = 0;
   p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE;
-  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM; // EOM unexpected on chunk 0
+  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;  // EOM unexpected on chunk 0
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -385,7 +385,7 @@ static void test_validator_invalid_eom_flag_unexpected(void)
 static void test_validator_crc_mismatch(void)
 {
   Packet p = create_valid_base_packet();
-  p.crc ^= 0xFFFF; // Corrupt CRC
+  p.crc ^= 0xFFFF;  // Corrupt CRC
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
   TEST_ASSERT_EQUAL(ValidationError::Type::CRC_MISMATCH, err.value().type);
@@ -407,11 +407,13 @@ Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::str
   p.header.payloadSize = content.size();
   p.header.protocolVersion = 1;
   std::memcpy(p.payload.data, content.data(), content.size());
-  
+
   // Set flags correctly based on chunk index
   uint8_t flags = 0;
-  if (index == 0) flags |= PACKET_FLAG_SOM;
-  if (index == total - 1) flags |= PACKET_FLAG_EOM;
+  if (index == 0)
+    flags |= PACKET_FLAG_SOM;
+  if (index == total - 1)
+    flags |= PACKET_FLAG_EOM;
   p.header.flags = flags;
 
   p.calculateCRC();
@@ -540,7 +542,7 @@ static void test_reassembler_session_limit(void)
   // Now try to send a packet for an 11th message ID
   Packet p11 = create_chunk(11, 0, 2, "B");
   auto res11 = reassembler.processPacket(p11, time);
-  TEST_ASSERT_FALSE(res11.has_value()); // Should be discarded because sessions size >= 10
+  TEST_ASSERT_FALSE(res11.has_value());  // Should be discarded because sessions size >= 10
 
   // Even if we send the final chunk for message 11, it shouldn't complete
   Packet p11_final = create_chunk(11, 1, 2, "C");
@@ -550,12 +552,12 @@ static void test_reassembler_session_limit(void)
   // However, if we complete one of the first 10 sessions, e.g., message 5
   Packet p5_final = create_chunk(5, 1, 2, "B");
   auto res5_final = reassembler.processPacket(p5_final, time);
-  TEST_ASSERT_TRUE(res5_final.has_value()); // Message 5 completes
+  TEST_ASSERT_TRUE(res5_final.has_value());  // Message 5 completes
 
   // Now sessions size is 9, so we should be able to start message 12
   Packet p12 = create_chunk(12, 0, 2, "D");
   auto res12 = reassembler.processPacket(p12, time);
-  TEST_ASSERT_FALSE(res12.has_value()); // Accepted (not completed yet)
+  TEST_ASSERT_FALSE(res12.has_value());  // Accepted (not completed yet)
 
   // And it can complete
   Packet p12_final = create_chunk(12, 1, 2, "E");
@@ -569,7 +571,7 @@ static void test_reassembler_duplicate_mismatch_ignored(void)
   uint32_t time = 1000;
 
   Packet p0 = create_chunk(50, 0, 2, "A");
-  Packet p0_mismatch = create_chunk(50, 0, 2, "X"); // Duplicate with different payload
+  Packet p0_mismatch = create_chunk(50, 0, 2, "X");  // Duplicate with different payload
   Packet p1 = create_chunk(50, 1, 2, "B");
 
   reassembler.processPacket(p0, time);

@@ -30,7 +30,7 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
   size_t numChunks = (length + LORA_MAX_PAYLOAD_SIZE - 1) / LORA_MAX_PAYLOAD_SIZE;
   if (numChunks > 255)
   {
-    return result; // Payload exceeds maximum segmentable protocol size
+    return result;  // Payload exceeds maximum segmentable protocol size
   }
   uint8_t totalChunks = static_cast<uint8_t>(numChunks);
 
@@ -62,7 +62,7 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
     {
       flags |= PACKET_FLAG_SOM;
     }
-    if (chunkIndex == (uint8_t)(totalChunks - 1)) // chunkIndex is 0-based.
+    if (chunkIndex == (uint8_t)(totalChunks - 1))  // chunkIndex is 0-based.
     {
       flags |= PACKET_FLAG_EOM;
     }

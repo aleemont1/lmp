@@ -1,4 +1,5 @@
 #include "PacketValidator.hpp"
+
 #include <cstdio>
 
 std::optional<ValidationError> PacketValidator::validate(const Packet &packet)
@@ -86,7 +87,7 @@ std::optional<ValidationError> PacketValidator::validateFlags(
 {
   if (header.flags & PACKET_FLAG_ACK)
   {
-    return std::nullopt; // Skip boundary check for feedback frames
+    return std::nullopt;  // Skip boundary check for feedback frames
   }
 
   bool isFirstChunk = (header.chunkIndex == 0);

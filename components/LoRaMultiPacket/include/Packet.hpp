@@ -29,13 +29,13 @@ constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
  * @brief Bitmasks for the PacketHeader 'flags' field.
  * @{
  */
-constexpr uint8_t PACKET_FLAG_SOM = 0x01;      ///< Start of Message: This packet is the first chunk.
-constexpr uint8_t PACKET_FLAG_EOM = 0x02;      ///< End of Message: This packet is the last chunk.
-constexpr uint8_t PACKET_FLAG_ACK_REQ = 0x04;  ///< Acknowledgement Requested (optional feature).
-constexpr uint8_t PACKET_FLAG_ACK = 0x08;      ///< Selective Acknowledgment (SACK) feedback packet.
-constexpr uint8_t PACKET_FLAG_CONN_REQ = 0x10; ///< Connection Request: Request memory allocation before sending data.
-constexpr uint8_t PACKET_FLAG_CONN_ACK = 0x20; ///< Connection Acknowledged: Memory allocated successfully.
-constexpr uint8_t PACKET_FLAG_CONN_NACK = 0x40;///< Connection Rejected: Out of memory (OOM).
+constexpr uint8_t PACKET_FLAG_SOM = 0x01;        ///< Start of Message: This packet is the first chunk.
+constexpr uint8_t PACKET_FLAG_EOM = 0x02;        ///< End of Message: This packet is the last chunk.
+constexpr uint8_t PACKET_FLAG_ACK_REQ = 0x04;    ///< Acknowledgement Requested (optional feature).
+constexpr uint8_t PACKET_FLAG_ACK = 0x08;        ///< Selective Acknowledgment (SACK) feedback packet.
+constexpr uint8_t PACKET_FLAG_CONN_REQ = 0x10;   ///< Connection Request: Request memory allocation before sending data.
+constexpr uint8_t PACKET_FLAG_CONN_ACK = 0x20;   ///< Connection Acknowledged: Memory allocated successfully.
+constexpr uint8_t PACKET_FLAG_CONN_NACK = 0x40;  ///< Connection Rejected: Out of memory (OOM).
 /** @} */
 
 #pragma pack(push, 1)  // Ensure no compiler padding is inserted between fields

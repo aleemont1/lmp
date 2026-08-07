@@ -37,15 +37,15 @@ static inline uint16_t updateCRC16Buffer(uint16_t crc, const uint8_t *data, size
 
 void Packet::calculateCRC()
 {
-  uint16_t crc = 0xFFFF;
-  crc = updateCRC16Buffer(crc, reinterpret_cast<const uint8_t *>(&this->header), HEADER_SIZE);
+  uint16_t calculatedCrc = 0xFFFF;
+  calculatedCrc = updateCRC16Buffer(calculatedCrc, reinterpret_cast<const uint8_t *>(&this->header), HEADER_SIZE);
 
   size_t bytesToProcess = (this->header.payloadSize > LORA_MAX_PAYLOAD_SIZE)
                               ? LORA_MAX_PAYLOAD_SIZE
                               : this->header.payloadSize;
-  crc = updateCRC16Buffer(crc, this->payload.data, bytesToProcess);
+  calculatedCrc = updateCRC16Buffer(calculatedCrc, this->payload.data, bytesToProcess);
 
-  this->crc = crc;
+  this->crc = calculatedCrc;
 }
 
 void Packet::printPacket() const
@@ -64,7 +64,7 @@ void Packet::printPacket() const
            (unsigned)this->header.flags, som ? 1 : 0, eom ? 1 : 0, ackReq ? 1 : 0, ack ? 1 : 0);
 
   ESP_LOGI(TAG, "Total Chunks:\t%u", (unsigned)this->header.totalChunks);
-  ESP_LOGI(TAG, "Chunk Index:\t%u",  (unsigned)(this->header.chunkIndex + 1));
+  ESP_LOGI(TAG, "Chunk Index:\t%u", (unsigned)(this->header.chunkIndex + 1));
   ESP_LOGI(TAG, "Payload Size:\t%u", (unsigned)this->header.payloadSize);
   ESP_LOGI(TAG, "Protocol Version:\t%u", (unsigned)this->header.protocolVersion);
   ESP_LOGI(TAG, "######## PAYLOAD ########");

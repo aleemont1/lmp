@@ -1,0 +1,13 @@
+#!/bin/bash
+# Pre-commit hook for LoRaMultiPacket: Code formatting & Native test verification
+
+set -e
+
+echo "[pre-commit] Checking code formatting with clang-format..."
+clang-format --dry-run --Werror components/LoRaMultiPacket/include/*.hpp components/LoRaMultiPacket/src/*.cpp test/*.cpp
+
+echo "[pre-commit] Running native unit test suite..."
+pio test -e native > /dev/null
+
+echo "[pre-commit] All checks passed successfully!"
+exit 0

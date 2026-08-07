@@ -41,7 +41,7 @@ std::optional<Packet> PacketParser::parse(const uint8_t *buffer, size_t length)
   {
     ESP_LOGW(TAG, "Size Mismatch! BufferLen: %u implies Payload: %u, but Header says: %u",
              (unsigned)length, (unsigned)actualPayloadSize, (unsigned)packet.header.payloadSize);
-    return std::nullopt; // Strict mode: reject malformed frames
+    return std::nullopt;  // Strict mode: reject malformed frames
   }
 
   // 4. Payload Extraction
@@ -65,11 +65,11 @@ std::optional<Packet> PacketParser::parse(const uint8_t *buffer, size_t length)
   // --- DEBUG LOGGING ---
   // Print what we parsed from the packet BEFORE validating it
   ESP_LOGI(TAG, "RX PARSE: ID=%u Chunk=%u/%u Len=%u CRC=0x%04X",
-           packet.header.messageId,
-           packet.header.chunkIndex + 1, // 1-based index for visual consistency
-           packet.header.totalChunks,
-           packet.header.payloadSize,
-           packet.crc);
+           (unsigned)packet.header.messageId,
+           (unsigned)(packet.header.chunkIndex + 1),  // 1-based index for visual consistency
+           (unsigned)packet.header.totalChunks,
+           (unsigned)packet.header.payloadSize,
+           (unsigned)packet.crc);
   // ---------------------
 
   // 6. Validation
