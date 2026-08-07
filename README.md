@@ -39,7 +39,7 @@ Originally developed for the **Borealis experimental rocket telemetry system**
 
 - **Robustness**  
   - Modbus CRC-16 for data integrity  
-  - Explicit transmission state flags (SOM / EOM)
+  - Zero-redundancy header design (implicit SOM/EOM indexing)
 
 - **Efficiency-Oriented**  
   - Fixed 7-byte header  
@@ -91,14 +91,19 @@ The protocol encapsulates application data into a compact `Packet` structure opt
 | totalChunks | uint8_t | Total number of fragments |
 | chunkIndex | uint8_t | Index of the current fragment (0-based) |
 | payloadSize | uint8_t | Number of valid payload bytes |
-| flags | uint8_t | Control flags (SOM, EOM, ACK_REQ) |
+| flags | uint8_t | Control flags (ACK_REQ, ACK, CONN_REQ, CONN_ACK, CONN_NACK) |
 | protocolVer | uint8_t | Protocol version |
 
 </div>
 
 **Flags**
-- **SOM** – Start Of Message  
-- **EOM** – End Of Message  
+- **ACK_REQ** (`0x04`) – Acknowledgement requested (receiver must reply with SACK)  
+- **ACK** (`0x08`) – Selective Acknowledgment feedback packet  
+- **CONN_REQ** (`0x10`) – Connection Request  
+- **CONN_ACK** (`0x20`) – Connection Acknowledged  
+- **CONN_NACK** (`0x40`) – Connection Refused  
+
+*Note: Start Of Message (SOM) and End Of Message (EOM) are implicitly derived from `chunkIndex == 0` and `chunkIndex == totalChunks - 1` respectively, eliminating redundant header flags.*
 
 ---
 
