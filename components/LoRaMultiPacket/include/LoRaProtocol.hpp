@@ -3,12 +3,15 @@
 #include <RadioLib.h>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "Packet.hpp"
 #include "PacketParser.hpp"
 #include "PacketReassembler.hpp"
 #include "PacketSerializer.hpp"
+#include "ProtocolConfig.hpp"
+#include "SackHelper.hpp"
 
 /**
  * @class LoRaProtocol
@@ -54,13 +57,13 @@ class LoRaProtocol
     uint32_t packetsTxFailed = 0;
   };
 
-  ProtocolStats getStats() const { return stats_; }
+  const ProtocolStats &getStats() const { return stats_; }
   void resetStats() { stats_ = ProtocolStats(); }
 
  private:
-  SX1262 *radio_;  // Direct pointer to the driver
-  RadioLibHal *hal_; // Pointer to hardware HAL
-  uint32_t irqPin_;  // Hardware interrupt pin (e.g. DIO1)
+  SX1262 *radio_;        ///< Pointer to SX1262 driver
+  RadioLibHal *hal_;     ///< Pointer to hardware HAL
+  uint32_t irqPin_;      ///< Hardware interrupt pin (e.g. DIO1)
   PacketReassembler reassembler_;
   OnReceiveCallback onReceive_;
   YieldCallback yieldCallback_;
@@ -68,8 +71,18 @@ class LoRaProtocol
   ProtocolStats stats_;
   bool verbose_;
   uint16_t nextMessageId_;
-  uint8_t phyBuffer_[256];  // Buffer for hardware I/O
+  uint8_t phyBuffer_[LoRaMultiPacketConfig::PHY_BUFFER_SIZE];  ///< Shared buffer for hardware I/O
 
-  void sendSACK(uint16_t messageId, uint8_t totalChunks, bool allReceived);
+  // Internal helper methods for transmission
+  bool sendUnreliable(const std::vector<Packet> &packets);
+  bool sendReliable(const std::vector<Packet> &packets);
+  bool waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut);
+  bool retransmitMissingChunks(const std::vector<Packet> &packets, const std::vector<uint8_t> &missingIndices);
+  uint32_t calculateAckTimeoutMs(size_t totalChunks) const;
   int transmitPacket(const Packet &packet, const char *logPrefix);
+
+  // Internal helper methods for reception
+  void sendSACK(uint16_t messageId, uint8_t totalChunks, bool allReceived);
+  std::optional<Packet> tryReceivePacket();
+  void handleIncomingPacket(const Packet &packet, uint32_t currentTimestampMs);
 };
