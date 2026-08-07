@@ -13,44 +13,37 @@
 #define ESP_LOGI(tag, format, ...) printf("LOG [%s]: " format "\n", tag, ##__VA_ARGS__)
 #endif
 
+static inline uint16_t updateCRC16Byte(uint16_t crc, uint8_t byte)
+{
+  crc ^= byte;
+  for (uint8_t j = 0; j < 8; j++)
+  {
+    if (crc & 0x0001)
+      crc = (crc >> 1) ^ 0xA001;
+    else
+      crc = crc >> 1;
+  }
+  return crc;
+}
+
+static inline uint16_t updateCRC16Buffer(uint16_t crc, const uint8_t *data, size_t len)
+{
+  for (size_t i = 0; i < len; ++i)
+  {
+    crc = updateCRC16Byte(crc, data[i]);
+  }
+  return crc;
+}
+
 void Packet::calculateCRC()
 {
   uint16_t crc = 0xFFFF;
+  crc = updateCRC16Buffer(crc, reinterpret_cast<const uint8_t *>(&this->header), HEADER_SIZE);
 
-  // CRC covers: full header + only valid payload bytes (exclude padding)
-  // This decouples integrity checking from physical layout and padding strategy
-
-  // Process header
-  const uint8_t *headerPtr = reinterpret_cast<const uint8_t *>(&this->header);
-  for (size_t i = 0; i < HEADER_SIZE; i++)
-  {
-    crc ^= headerPtr[i];
-    for (uint8_t j = 0; j < 8; j++)
-    {
-      if (crc & 0x0001)
-	crc = (crc >> 1) ^ 0xA001;
-      else
-	crc = crc >> 1;
-    }
-  }
-
-  // Process only valid payload bytes (up to payloadSize), exclude padding
-  size_t bytesToProcess = this->header.payloadSize;
-  if (bytesToProcess > LORA_MAX_PAYLOAD_SIZE)
-  {
-    bytesToProcess = LORA_MAX_PAYLOAD_SIZE;
-  }
-  for (size_t i = 0; i < bytesToProcess; i++)
-  {
-    crc ^= this->payload.data[i];
-    for (uint8_t j = 0; j < 8; j++)
-    {
-      if (crc & 0x0001)
-	crc = (crc >> 1) ^ 0xA001;
-      else
-	crc = crc >> 1;
-    }
-  }
+  size_t bytesToProcess = (this->header.payloadSize > LORA_MAX_PAYLOAD_SIZE)
+                              ? LORA_MAX_PAYLOAD_SIZE
+                              : this->header.payloadSize;
+  crc = updateCRC16Buffer(crc, this->payload.data, bytesToProcess);
 
   this->crc = crc;
 }
