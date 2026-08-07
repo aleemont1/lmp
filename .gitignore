@@ -97,3 +97,24 @@ plots/
 src/*Test.cpp
 .venv/
 venv/
+
+# -----------------------
+# Simulation & Simulator Artifacts
+# -----------------------
+simulation/
+docs/
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# -----------------------
+# GNURadio Simulation Data & Media
+# -----------------------
+simulation/data/
+simulation/media/
+*.cfile
+*.mp4
+*.wav
+*.webp
