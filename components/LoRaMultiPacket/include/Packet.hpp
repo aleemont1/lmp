@@ -104,7 +104,7 @@ constexpr uint8_t PAYLOAD_PADDING_BYTE = 0xFF;
  */
 struct PacketPayload
 {
-  uint8_t data[LORA_MAX_PAYLOAD_SIZE];
+  uint8_t data[LORA_MAX_PAYLOAD_SIZE]{0};
 };
 
 /**
@@ -113,9 +113,9 @@ struct PacketPayload
  */
 struct Packet
 {
-  PacketHeader header;    ///< Metadata for transport.
-  PacketPayload payload;  ///< Application data segment.
-  uint16_t crc;           ///< Error detection checksum.
+  PacketHeader header{};    ///< Metadata for transport.
+  PacketPayload payload{};  ///< Application data segment.
+  uint16_t crc{0};          ///< Error detection checksum.
 
   /**
    * @brief Calculates the CRC-16 of the packet and updates the 'crc' field.

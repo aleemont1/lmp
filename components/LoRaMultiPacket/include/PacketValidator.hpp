@@ -28,7 +28,7 @@ struct ValidationError
   Type type;
   std::string details;
 
-  ValidationError(Type t, const std::string &msg = "") : type(t), details(msg) {}
+  explicit ValidationError(Type t, const std::string &msg = "") : type(t), details(msg) {}
 };
 
 /**
