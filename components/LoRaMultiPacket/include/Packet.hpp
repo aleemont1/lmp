@@ -130,6 +130,11 @@ struct Packet
   uint16_t crc{0};          ///< Error detection checksum.
 
   /**
+   * @brief Computes the CRC-16 of the packet without modifying state.
+   */
+  uint16_t computeCRC() const;
+
+  /**
    * @brief Calculates the CRC-16 of the packet and updates the 'crc' field.
    *
    * **CRC Scope:** Covers the full header + only valid payload bytes (respects payloadSize).

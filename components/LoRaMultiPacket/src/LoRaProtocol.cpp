@@ -212,13 +212,16 @@ bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<u
 
 	sackBitmapOut.assign(packet.payload.data, packet.payload.data + packet.header.payloadSize);
 
-	char hexBuf[128] = {0};
-	size_t offset = 0;
-	for (size_t i = 0; i < sackBitmapOut.size() && offset < sizeof(hexBuf) - 10; ++i)
+	if (verbose_)
 	{
-	  offset += std::snprintf(hexBuf + offset, sizeof(hexBuf) - offset, "0x%02X ", sackBitmapOut[i]);
+	  char hexBuf[128] = {0};
+	  size_t offset = 0;
+	  for (size_t i = 0; i < sackBitmapOut.size() && offset < sizeof(hexBuf) - 10; ++i)
+	  {
+	    offset += std::snprintf(hexBuf + offset, sizeof(hexBuf) - offset, "0x%02X ", sackBitmapOut[i]);
+	  }
+	  ESP_LOGI(TAG, "Received SACK for MsgID %u. Bitmap Bytes: %s", msgId, hexBuf);
 	}
-	ESP_LOGI(TAG, "Received SACK for MsgID %u. Bitmap Bytes: %s", msgId, hexBuf);
 	return true;
       }
     }

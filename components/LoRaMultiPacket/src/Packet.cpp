@@ -35,7 +35,7 @@ static inline uint16_t updateCRC16Buffer(uint16_t crc, const uint8_t *data, size
   return crc;
 }
 
-void Packet::calculateCRC()
+uint16_t Packet::computeCRC() const
 {
   uint16_t calculatedCrc = 0xFFFF;
   calculatedCrc = updateCRC16Buffer(calculatedCrc, reinterpret_cast<const uint8_t *>(&this->header), HEADER_SIZE);
@@ -45,7 +45,12 @@ void Packet::calculateCRC()
                               : this->header.payloadSize;
   calculatedCrc = updateCRC16Buffer(calculatedCrc, this->payload.data, bytesToProcess);
 
-  this->crc = calculatedCrc;
+  return calculatedCrc;
+}
+
+void Packet::calculateCRC()
+{
+  this->crc = computeCRC();
 }
 
 void Packet::printPacket() const
@@ -78,6 +83,7 @@ void Packet::printPacket() const
 
   char tmp[8];
   std::string line;
+  line.reserve(toPrint * 3);
   for (int i = 0; i < toPrint; i++)
   {
     std::snprintf(tmp, sizeof(tmp), "%02X ", this->payload.data[i]);

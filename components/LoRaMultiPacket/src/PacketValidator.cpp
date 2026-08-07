@@ -100,16 +100,13 @@ std::optional<ValidationError> PacketValidator::validateFlags(
 std::optional<ValidationError> PacketValidator::validateCRC(
     const Packet &packet, uint16_t receivedCrc)
 {
-  // Create a copy to calculate CRC
-  Packet tempPacket = packet;
-  tempPacket.crc = 0;  // Clear CRC field before calculation
-  tempPacket.calculateCRC();
+  uint16_t calculatedCrc = packet.computeCRC();
 
   // Compare calculated CRC with received CRC
-  if (tempPacket.crc != receivedCrc)
+  if (calculatedCrc != receivedCrc)
   {
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "CRC mismatch: expected 0x%04X, received 0x%04X", tempPacket.crc, receivedCrc);
+    std::snprintf(buf, sizeof(buf), "CRC mismatch: expected 0x%04X, received 0x%04X", calculatedCrc, receivedCrc);
     return ValidationError(
         ValidationError::Type::CRC_MISMATCH,
         std::string(buf));
