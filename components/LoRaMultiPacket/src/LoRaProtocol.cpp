@@ -17,11 +17,160 @@ LoRaProtocol::LoRaProtocol(SX1262 *radio, RadioLibHal *hal, uint32_t irqPin)
     : radio_(radio),
       hal_(hal),
       irqPin_(irqPin),
+      onConnRequest_(nullptr),
       dropPacketCallback_(nullptr),
       verbose_(false),
       nextMessageId_(1),
       phyBuffer_{0}
 {
+  connection_.state = ConnectionState::CLOSED;
+}
+
+bool LoRaProtocol::connect(uint32_t timeoutMs)
+{
+  uint16_t msgId = nextMessageId_++;
+  if (nextMessageId_ == 0)
+  {
+    nextMessageId_ = 1;
+  }
+
+  connection_.state = ConnectionState::SYN_SENT;
+  connection_.sessionMsgId = msgId;
+  stats_.synSent++;
+
+  SynMetadata synReq{};
+  synReq.requestedPayloadSize = LORA_MAX_PAYLOAD_SIZE;
+  synReq.windowSize = 1;
+  synReq.timeoutMs = static_cast<uint16_t>(timeoutMs);
+
+  ESP_LOGI(TAG, "Initiating 3-Way Handshake (MsgID %u, SYN sent)...", msgId);
+  sendSyn(msgId, synReq);
+
+  SynAckMetadata synAckResp{};
+  if (!waitForSynAck(msgId, timeoutMs, synAckResp))
+  {
+    ESP_LOGE(TAG, "3-Way Handshake Failed (SYN-ACK Timeout/NACK for MsgID %u)", msgId);
+    connection_.state = ConnectionState::CLOSED;
+    return false;
+  }
+
+  // Send final ACK of the 3-Way Handshake
+  Packet ackPacket{};
+  ackPacket.header.messageId = msgId;
+  ackPacket.header.totalChunks = 1;
+  ackPacket.header.chunkIndex = 0;
+  ackPacket.header.payloadSize = 0;
+  ackPacket.header.flags = FLAG_CONN_ACK;
+  ackPacket.header.protocolVersion = LoRaMultiPacketConfig::PROTOCOL_VERSION;
+  ackPacket.calculateCRC();
+
+  transmitPacket(ackPacket, "CONN ACK PACKET");
+  radio_->startReceive();
+
+  connection_.state = ConnectionState::ESTABLISHED;
+  connection_.negotiatedPayloadSize = synAckResp.acceptedPayloadSize;
+  connection_.windowSize = synAckResp.windowSize;
+  connection_.lastActivityMs = hal_->millis();
+  stats_.connEstablished++;
+
+  ESP_LOGI(TAG, "3-Way Handshake SUCCESS! Connection ESTABLISHED with Peer (MsgID %u).", msgId);
+  return true;
+}
+
+void LoRaProtocol::disconnect()
+{
+  if (connection_.state != ConnectionState::CLOSED)
+  {
+    ESP_LOGI(TAG, "Closing connection session (MsgID %u)...", connection_.sessionMsgId);
+    connection_.state = ConnectionState::CLOSED;
+  }
+}
+
+void LoRaProtocol::sendSyn(uint16_t msgId, const SynMetadata &syn)
+{
+  Packet p{};
+  p.header.messageId = msgId;
+  p.header.totalChunks = 1;
+  p.header.chunkIndex = 0;
+  p.header.payloadSize = sizeof(SynMetadata);
+  p.header.flags = FLAG_CONN_REQ;
+  p.header.protocolVersion = LoRaMultiPacketConfig::PROTOCOL_VERSION;
+  std::memcpy(p.payload.data, &syn, sizeof(SynMetadata));
+  p.calculateCRC();
+
+  transmitPacket(p, "SYN PACKET");
+  radio_->startReceive();
+}
+
+void LoRaProtocol::sendSynAck(uint16_t msgId, const SynAckMetadata &synAck)
+{
+  Packet p{};
+  p.header.messageId = msgId;
+  p.header.totalChunks = 1;
+  p.header.chunkIndex = 0;
+  p.header.payloadSize = sizeof(SynAckMetadata);
+  p.header.flags = FLAG_CONN_REQ | FLAG_CONN_ACK;
+  p.header.protocolVersion = LoRaMultiPacketConfig::PROTOCOL_VERSION;
+  std::memcpy(p.payload.data, &synAck, sizeof(SynAckMetadata));
+  p.calculateCRC();
+
+  hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
+  transmitPacket(p, "SYN-ACK PACKET");
+  radio_->startReceive();
+}
+
+void LoRaProtocol::sendConnNack(uint16_t msgId, ConnNackReason reason)
+{
+  Packet p{};
+  p.header.messageId = msgId;
+  p.header.totalChunks = 1;
+  p.header.chunkIndex = 0;
+  p.header.payloadSize = 1;
+  p.header.flags = FLAG_CONN_NACK;
+  p.header.protocolVersion = LoRaMultiPacketConfig::PROTOCOL_VERSION;
+  p.payload.data[0] = static_cast<uint8_t>(reason);
+  p.calculateCRC();
+
+  hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
+  transmitPacket(p, "CONN-NACK PACKET");
+  radio_->startReceive();
+}
+
+bool LoRaProtocol::waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut)
+{
+  uint32_t startMs = hal_->millis();
+
+  while (hal_->millis() - startMs < timeoutMs)
+  {
+    auto pktOpt = tryReceivePacket();
+    if (pktOpt.has_value())
+    {
+      const Packet &pkt = pktOpt.value();
+      if (pkt.header.messageId == msgId)
+      {
+	if (pkt.header.flags & FLAG_CONN_NACK)
+	{
+	  stats_.connNacked++;
+	  ESP_LOGW(TAG, "Connection NACK received for MsgID %u (Reason code: %u)",
+	           msgId, (unsigned)pkt.payload.data[0]);
+	  return false;
+	}
+
+	if ((pkt.header.flags & (FLAG_CONN_REQ | FLAG_CONN_ACK)) == (FLAG_CONN_REQ | FLAG_CONN_ACK))
+	{
+	  if (pkt.header.payloadSize >= sizeof(SynAckMetadata))
+	  {
+	    std::memcpy(&synAckOut, pkt.payload.data, sizeof(SynAckMetadata));
+	    return true;
+	  }
+	}
+      }
+    }
+
+    hal_->delay(LoRaMultiPacketConfig::POLL_SLEEP_DELAY_MS);
+  }
+
+  return false;
 }
 
 bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
@@ -269,6 +418,17 @@ void LoRaProtocol::update(uint32_t currentTimestampMs)
 {
   reassembler_.prune(currentTimestampMs, LoRaMultiPacketConfig::PRUNE_TIMEOUT_MS);
 
+  // Inactivity / Idle Timeout Check for active connections
+  if (connection_.state == ConnectionState::ESTABLISHED || connection_.state == ConnectionState::SYN_RCVD)
+  {
+    if (currentTimestampMs - connection_.lastActivityMs > connection_.timeoutMs)
+    {
+      ESP_LOGW(TAG, "Connection session MsgID %u TIMED OUT due to inactivity (%u ms). Closing connection.",
+               connection_.sessionMsgId, (unsigned)(currentTimestampMs - connection_.lastActivityMs));
+      connection_.state = ConnectionState::CLOSED;
+    }
+  }
+
   auto pktOpt = tryReceivePacket();
   if (pktOpt.has_value())
   {
@@ -349,6 +509,87 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
 
   uint16_t msgId = packet.header.messageId;
 
+  // Handle 3-Way Handshake Connection Control Frames
+  if (packet.header.flags & FLAG_CONN_REQ)
+  {
+    if (!(packet.header.flags & FLAG_CONN_ACK))  // Pure SYN packet
+    {
+      stats_.synRcvd++;
+
+      // Failure Mode: Protocol Version Mismatch
+      if (packet.header.protocolVersion != LoRaMultiPacketConfig::PROTOCOL_VERSION)
+      {
+	ESP_LOGE(TAG, "SYN rejected for MsgID %u: Protocol version mismatch (%u != %u)",
+	         msgId, (unsigned)packet.header.protocolVersion, (unsigned)LoRaMultiPacketConfig::PROTOCOL_VERSION);
+	sendConnNack(msgId, ConnNackReason::UNSUPPORTED_VERSION);
+	return;
+      }
+
+      SynMetadata synReq{};
+      if (packet.header.payloadSize >= sizeof(SynMetadata))
+      {
+	std::memcpy(&synReq, packet.payload.data, sizeof(SynMetadata));
+      }
+
+      // Parameter Negotiation & Clamping
+      uint8_t acceptedPayload = synReq.requestedPayloadSize;
+      if (acceptedPayload == 0 || acceptedPayload > LORA_MAX_PAYLOAD_SIZE)
+      {
+	acceptedPayload = LORA_MAX_PAYLOAD_SIZE;  // Clamp to maximum supported payload
+      }
+
+      uint8_t acceptedWindow = (synReq.windowSize == 0) ? 1 : synReq.windowSize;
+
+      bool accept = true;
+      if (onConnRequest_)
+      {
+	accept = onConnRequest_(synReq);
+      }
+
+      if (accept)
+      {
+	connection_.state = ConnectionState::SYN_RCVD;
+	connection_.sessionMsgId = msgId;
+	connection_.negotiatedPayloadSize = acceptedPayload;
+	connection_.windowSize = acceptedWindow;
+	connection_.lastActivityMs = currentTimestampMs;
+	connection_.timeoutMs = (synReq.timeoutMs > 0) ? synReq.timeoutMs : LoRaMultiPacketConfig::DEFAULT_CONN_INACTIVITY_TIMEOUT_MS;
+
+	SynAckMetadata synAckResp{};
+	synAckResp.acceptedPayloadSize = acceptedPayload;
+	synAckResp.windowSize = acceptedWindow;
+	synAckResp.reserved = 0;
+
+	ESP_LOGI(TAG, "SYN received for MsgID %u (ReqPayload=%uB -> AccPayload=%uB). Replying with SYN-ACK...",
+	         msgId, (unsigned)synReq.requestedPayloadSize, (unsigned)acceptedPayload);
+	sendSynAck(msgId, synAckResp);
+      }
+      else
+      {
+	ESP_LOGW(TAG, "SYN received for MsgID %u but application REJECTED connection. Sending NACK.", msgId);
+	sendConnNack(msgId, ConnNackReason::REJECTED);
+      }
+      return;
+    }
+  }
+  else if (packet.header.flags & FLAG_CONN_ACK)  // Final ACK of Handshake
+  {
+    if (connection_.state == ConnectionState::SYN_RCVD && connection_.sessionMsgId == msgId)
+    {
+      connection_.state = ConnectionState::ESTABLISHED;
+      connection_.lastActivityMs = currentTimestampMs;
+      stats_.connEstablished++;
+      ESP_LOGI(TAG, "3-Way Handshake SUCCESS! Connection ESTABLISHED (Server Mode, MsgID %u).", msgId);
+      radio_->startReceive();
+      return;
+    }
+  }
+
+  if (connection_.state == ConnectionState::ESTABLISHED && connection_.sessionMsgId == msgId)
+  {
+    connection_.lastActivityMs = currentTimestampMs;
+  }
+
   if (packet.header.flags & FLAG_ACK)
   {
     ESP_LOGI(TAG, "Received unexpected SACK packet (ignored outside TX loop)");
@@ -415,6 +656,11 @@ void LoRaProtocol::sendSACK(uint16_t messageId, uint8_t totalChunks, bool allRec
 void LoRaProtocol::setOnReceiveCallback(OnReceiveCallback callback)
 {
   onReceive_ = callback;
+}
+
+void LoRaProtocol::setOnConnectionRequestCallback(OnConnectionRequestCallback callback)
+{
+  onConnRequest_ = callback;
 }
 
 void LoRaProtocol::setYieldCallback(YieldCallback callback)

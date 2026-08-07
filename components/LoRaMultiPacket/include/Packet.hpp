@@ -90,7 +90,7 @@ struct PacketHeader
   /**
    * @brief Protocol version for compatibility checks.
    */
-  uint8_t protocolVersion = 1;
+  uint8_t protocolVersion = 2;
 };
 
 /**

@@ -65,7 +65,7 @@ class PacketValidator
  private:
   static constexpr size_t MIN_PACKET_SIZE =
       HEADER_SIZE + sizeof(PacketPayload) + CRC_SIZE;
-  static constexpr uint8_t SUPPORTED_PROTOCOL_VERSION = 1;
+  static constexpr uint8_t SUPPORTED_PROTOCOL_VERSION = 2;
 
   /**
    * @brief Validates header fields for sanity.

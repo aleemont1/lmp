@@ -10,7 +10,11 @@
 namespace LoRaMultiPacketConfig
 {
 // Protocol Version
-constexpr uint8_t PROTOCOL_VERSION = 1;
+constexpr uint8_t PROTOCOL_VERSION = 2;
+
+// Connection and Handshake Configuration
+constexpr uint32_t DEFAULT_SYN_TIMEOUT_MS = 3000;
+constexpr uint32_t DEFAULT_CONN_INACTIVITY_TIMEOUT_MS = 15000;
 
 // Retry and Timeout Limits
 constexpr int MAX_RETRIES = 5;

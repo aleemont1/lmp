@@ -5,6 +5,7 @@
 #include <cstring>  // for memcmp
 #include <vector>
 
+#include "Connection.hpp"
 #include "Packet.hpp"
 #include "PacketDeserializer.hpp"
 #include "PacketParser.hpp"
@@ -164,7 +165,7 @@ static void test_parser_valid_single_chunk(void)
   pkt.header.chunkIndex = 0;
   pkt.header.payloadSize = 24;
   pkt.header.flags = 0;
-  pkt.header.protocolVersion = 1;
+  pkt.header.protocolVersion = 2;
 
   std::memcpy(pkt.payload.data, "Single chunk packet test", 24);
   pkt.calculateCRC();
@@ -213,7 +214,7 @@ static void test_parser_rejects_crc_mismatch(void)
   pkt.header.chunkIndex = 0;
   pkt.header.flags = 0;
   pkt.header.payloadSize = 32;
-  pkt.header.protocolVersion = 1;
+  pkt.header.protocolVersion = 2;
   std::memset(pkt.payload.data, 0xAA, 32);
   pkt.calculateCRC();
 
@@ -251,7 +252,7 @@ static Packet create_valid_base_packet()
   p.header.chunkIndex = 0;
   p.header.payloadSize = 10;
   p.header.flags = 0;
-  p.header.protocolVersion = 1;
+  p.header.protocolVersion = 2;
   std::memset(p.payload.data, 0xAB, 10);
   p.calculateCRC();
   return p;
@@ -261,7 +262,7 @@ static Packet create_valid_base_packet()
 static void test_validator_invalid_protocol_version(void)
 {
   Packet p = create_valid_base_packet();
-  p.header.protocolVersion = 2;  // Supported is 1
+  p.header.protocolVersion = 99;  // Supported is 2
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -345,7 +346,7 @@ Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::str
   p.header.chunkIndex = index;
   p.header.totalChunks = total;
   p.header.payloadSize = content.size();
-  p.header.protocolVersion = 1;
+  p.header.protocolVersion = 2;
   std::memcpy(p.payload.data, content.data(), content.size());
 
   // flags: start/end-of-message are derived from chunkIndex/totalChunks, not flags
@@ -637,6 +638,62 @@ static void test_sack_helper(void)
   TEST_ASSERT_EQUAL_UINT8(0xFE, sackPkt.payload.data[1]);
 }
 
+static void test_connection_syn_metadata_packing(void)
+{
+  TEST_ASSERT_EQUAL(4, sizeof(SynMetadata));
+  TEST_ASSERT_EQUAL(4, sizeof(SynAckMetadata));
+
+  SynMetadata syn{};
+  syn.requestedPayloadSize = 200;
+  syn.windowSize = 2;
+  syn.timeoutMs = 10000;
+
+  uint8_t buffer[4];
+  std::memcpy(buffer, &syn, sizeof(SynMetadata));
+
+  SynMetadata unpacked{};
+  std::memcpy(&unpacked, buffer, sizeof(SynMetadata));
+
+  TEST_ASSERT_EQUAL_UINT8(200, unpacked.requestedPayloadSize);
+  TEST_ASSERT_EQUAL_UINT8(2, unpacked.windowSize);
+  TEST_ASSERT_EQUAL_UINT16(10000, unpacked.timeoutMs);
+}
+
+static void test_connection_flags_validation(void)
+{
+  TEST_ASSERT_EQUAL_HEX8(0x10, FLAG_CONN_REQ);
+  TEST_ASSERT_EQUAL_HEX8(0x20, FLAG_CONN_ACK);
+  TEST_ASSERT_EQUAL_HEX8(0x40, FLAG_CONN_NACK);
+
+  // SYN packet
+  Packet synPkt{};
+  synPkt.header.messageId = 10;
+  synPkt.header.totalChunks = 1;
+  synPkt.header.chunkIndex = 0;
+  synPkt.header.payloadSize = sizeof(SynMetadata);
+  synPkt.header.flags = FLAG_CONN_REQ;
+  synPkt.header.protocolVersion = 2;
+  synPkt.calculateCRC();
+
+  auto err = PacketValidator::validate(synPkt);
+  TEST_ASSERT_FALSE(err.has_value());
+}
+
+static void test_validator_accepts_syn_packet(void)
+{
+  Packet synPkt{};
+  synPkt.header.messageId = 10;
+  synPkt.header.totalChunks = 1;
+  synPkt.header.chunkIndex = 0;
+  synPkt.header.payloadSize = sizeof(SynMetadata);
+  synPkt.header.flags = FLAG_CONN_REQ;
+  synPkt.header.protocolVersion = 2;
+  synPkt.calculateCRC();
+
+  auto err = PacketValidator::validate(synPkt);
+  TEST_ASSERT_FALSE(err.has_value());
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -664,6 +721,7 @@ int main(void)
   RUN_TEST(test_validator_invalid_payload_size_non_final_partial);
   RUN_TEST(test_validator_crc_mismatch);
   RUN_TEST(test_validator_bypass_ack_flags);
+  RUN_TEST(test_validator_accepts_syn_packet);
 
   // Reassembler Tests
   RUN_TEST(test_reassembler_ordered_flow);
@@ -678,6 +736,10 @@ int main(void)
 
   // SackHelper Tests
   RUN_TEST(test_sack_helper);
+
+  // Connection & 3WHS Tests
+  RUN_TEST(test_connection_syn_metadata_packing);
+  RUN_TEST(test_connection_flags_validation);
 
   return UNITY_END();
 }
