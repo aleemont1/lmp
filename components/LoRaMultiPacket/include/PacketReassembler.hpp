@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "Packet.hpp"
+#include "ProtocolConfig.hpp"
+
 /**
  * @class PacketReassembler
  * @brief Manages the reconstruction of split messages from individual Packet chunks.
@@ -51,7 +53,7 @@ class PacketReassembler
    * @param bitmapOut Output vector to write the bitmap.
    * @return true if session was found, false otherwise.
    */
-  bool getReceivedBitmap(uint16_t messageId, std::vector<uint8_t>& bitmapOut) const;
+  bool getReceivedBitmap(uint16_t messageId, std::vector<uint8_t> &bitmapOut) const;
 
   /**
    * @brief Checks if a message ID was recently completed.
@@ -64,24 +66,16 @@ class PacketReassembler
   void markCompleted(uint16_t messageId);
 
  private:
-  static constexpr size_t MAX_COMPLETED_HISTORY = 16;
-  /**
-   * @brief Maximum number of concurrent messages (sequences) allowed to prevent DoS/Memory exhaustion.
-   */
-  static constexpr size_t MAX_CONCURRENT_MESSAGES = 10;
+  static constexpr size_t MAX_COMPLETED_HISTORY = LoRaMultiPacketConfig::MAX_COMPLETED_HISTORY;
+  static constexpr size_t MAX_CONCURRENT_MESSAGES = LoRaMultiPacketConfig::MAX_CONCURRENT_SESSIONS;
 
   /**
    * @brief Keep track of the received chunks for each msgId, with other metadata.
-   *
    */
   struct ReassemblySession
   {
     uint8_t totalChunks;
     uint32_t firstReceivedTime;
-    /**
-     * @brief Storage for chunks.
-     * Maps chunk index -> Packet. Prevents huge pre-allocations.
-     */
     std::map<uint8_t, Packet> chunks;
 
     ReassemblySession(uint8_t total, uint32_t time)
@@ -91,18 +85,8 @@ class PacketReassembler
     }
   };
 
-  /**
-   * @brief Map of Message ID -> Reassembly Session.
-   */
   std::map<uint16_t, ReassemblySession> sessions_;
-
-  /**
-   * @brief History of recently completed message IDs.
-   */
   std::vector<uint16_t> completedMessages_;
 
-  /**
-   * @brief Internal helper to reconstruct payload from a complete session.
-   */
-  std::vector<uint8_t> reconstruct(const ReassemblySession &session);
+  static std::vector<uint8_t> reconstruct(const ReassemblySession &session);
 };

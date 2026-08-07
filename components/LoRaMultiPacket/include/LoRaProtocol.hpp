@@ -1,6 +1,7 @@
 #pragma once
 
 #include <RadioLib.h>
+
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -61,9 +62,9 @@ class LoRaProtocol
   void resetStats() { stats_ = ProtocolStats(); }
 
  private:
-  SX1262 *radio_;        ///< Pointer to SX1262 driver
-  RadioLibHal *hal_;     ///< Pointer to hardware HAL
-  uint32_t irqPin_;      ///< Hardware interrupt pin (e.g. DIO1)
+  SX1262 *radio_;     ///< Pointer to SX1262 driver
+  RadioLibHal *hal_;  ///< Pointer to hardware HAL
+  uint32_t irqPin_;   ///< Hardware interrupt pin (e.g. DIO1)
   PacketReassembler reassembler_;
   OnReceiveCallback onReceive_;
   YieldCallback yieldCallback_;

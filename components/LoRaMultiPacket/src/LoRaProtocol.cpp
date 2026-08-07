@@ -19,7 +19,8 @@ LoRaProtocol::LoRaProtocol(SX1262 *radio, RadioLibHal *hal, uint32_t irqPin)
       irqPin_(irqPin),
       dropPacketCallback_(nullptr),
       verbose_(false),
-      nextMessageId_(1)
+      nextMessageId_(1),
+      phyBuffer_{0}
 {
 }
 
@@ -69,7 +70,7 @@ bool LoRaProtocol::sendUnreliable(const std::vector<Packet> &packets)
       stats_.packetsTxFailed++;
       if (yieldCallback_)
       {
-        yieldCallback_();
+	yieldCallback_();
       }
       return false;
     }
@@ -106,7 +107,7 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
       stats_.packetsTxFailed++;
       if (yieldCallback_)
       {
-        yieldCallback_();
+	yieldCallback_();
       }
       return false;
     }
@@ -120,7 +121,6 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
 
   radio_->startReceive();
 
-  constexpr int MAX_RETRIES = 5;
   int retries = 0;
 
   while (true)
@@ -131,30 +131,30 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
       auto missingIndices = SackHelper::getMissingChunkIndices(sackBitmap, totalChunks);
       if (missingIndices.empty())
       {
-        ESP_LOGI(TAG, "Reliable send successful! All chunks ACKed.");
-        stats_.packetsTx++;
-        radio_->startReceive();
-        return true;
+	ESP_LOGI(TAG, "Reliable send successful! All chunks ACKed.");
+	stats_.packetsTx++;
+	radio_->startReceive();
+	return true;
       }
 
       ESP_LOGI(TAG, "SACK received. Chunks missing: %u", (unsigned)missingIndices.size());
       if (!retransmitMissingChunks(packets, missingIndices))
       {
-        return false;
+	return false;
       }
       retries = 0;
       continue;
     }
 
-    retries++;
-    if (retries > MAX_RETRIES)
+    int maxRetries = LoRaMultiPacketConfig::MAX_RETRIES;
+    if (retries > maxRetries)
     {
       ESP_LOGE(TAG, "Reliable send failed: Max retries exceeded.");
       radio_->startReceive();
       return false;
     }
 
-    ESP_LOGW(TAG, "ACK timeout. Retrying last chunk (%u/%u)", retries, MAX_RETRIES);
+    ESP_LOGW(TAG, "ACK timeout. Retrying last chunk (%u/%u)", (unsigned)retries, (unsigned)maxRetries);
     Packet retryPkt = packets[totalChunks - 1];
     retryPkt.header.flags |= PACKET_FLAG_ACK_REQ;
     retryPkt.calculateCRC();
@@ -178,8 +178,12 @@ uint32_t LoRaProtocol::calculateAckTimeoutMs(size_t totalChunks) const
   size_t sackLen = HEADER_SIZE + ((totalChunks + 7) / 8) + CRC_SIZE;
   uint32_t toaSackMs = radio_->getTimeOnAir(sackLen) / 1000;
 
-  uint32_t timeoutMs = static_cast<uint32_t>(1.5 * (toaDataMs * totalChunks + toaSackMs) + 25);
-  return (timeoutMs < 1000) ? 1000 : timeoutMs;
+  uint32_t timeoutMs = static_cast<uint32_t>(
+      LoRaMultiPacketConfig::ACK_TIMEOUT_SAFETY_FACTOR * (toaDataMs * totalChunks + toaSackMs) +
+      LoRaMultiPacketConfig::ACK_TIMEOUT_GUARD_MS);
+  return (timeoutMs < LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS)
+             ? LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS
+             : timeoutMs;
 }
 
 bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut)
@@ -199,34 +203,34 @@ bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<u
       const auto &packet = pktOpt.value();
       if ((packet.header.flags & PACKET_FLAG_ACK) && (packet.header.messageId == msgId))
       {
-        if (verbose_)
-        {
-          ESP_LOGI(TAG, "<<< DUMPING RX SACK PACKET <<<");
-          packet.printPacket();
-          ESP_LOGI(TAG, ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
-        }
+	if (verbose_)
+	{
+	  ESP_LOGI(TAG, "<<< DUMPING RX SACK PACKET <<<");
+	  packet.printPacket();
+	  ESP_LOGI(TAG, ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+	}
 
-        sackBitmapOut.assign(packet.payload.data, packet.payload.data + packet.header.payloadSize);
+	sackBitmapOut.assign(packet.payload.data, packet.payload.data + packet.header.payloadSize);
 
-        char hexBuf[128] = {0};
-        size_t offset = 0;
-        for (size_t i = 0; i < sackBitmapOut.size() && offset < sizeof(hexBuf) - 10; ++i)
-        {
-          offset += std::snprintf(hexBuf + offset, sizeof(hexBuf) - offset, "0x%02X ", sackBitmapOut[i]);
-        }
-        ESP_LOGI(TAG, "Received SACK for MsgID %u. Bitmap Bytes: %s", msgId, hexBuf);
-        return true;
+	char hexBuf[128] = {0};
+	size_t offset = 0;
+	for (size_t i = 0; i < sackBitmapOut.size() && offset < sizeof(hexBuf) - 10; ++i)
+	{
+	  offset += std::snprintf(hexBuf + offset, sizeof(hexBuf) - offset, "0x%02X ", sackBitmapOut[i]);
+	}
+	ESP_LOGI(TAG, "Received SACK for MsgID %u. Bitmap Bytes: %s", msgId, hexBuf);
+	return true;
       }
     }
 
-    hal_->delay(10);
+    hal_->delay(LoRaMultiPacketConfig::POLL_SLEEP_DELAY_MS);
   }
 
   return false;
 }
 
 bool LoRaProtocol::retransmitMissingChunks(const std::vector<Packet> &packets,
-                                            const std::vector<uint8_t> &missingIndices)
+                                           const std::vector<uint8_t> &missingIndices)
 {
   stats_.chunksTx += missingIndices.size();
 
@@ -260,7 +264,7 @@ bool LoRaProtocol::retransmitMissingChunks(const std::vector<Packet> &packets,
 
 void LoRaProtocol::update(uint32_t currentTimestampMs)
 {
-  reassembler_.prune(currentTimestampMs, 15000);
+  reassembler_.prune(currentTimestampMs, LoRaMultiPacketConfig::PRUNE_TIMEOUT_MS);
 
   auto pktOpt = tryReceivePacket();
   if (pktOpt.has_value())
@@ -287,22 +291,22 @@ std::optional<Packet> LoRaProtocol::tryReceivePacket()
       int state = radio_->readData(phyBuffer_, len);
       if (state == RADIOLIB_ERR_NONE)
       {
-        auto packetOpt = PacketParser::parse(phyBuffer_, len);
-        if (packetOpt.has_value())
-        {
-          radio_->startReceive();
-          return packetOpt;
-        }
-        else
-        {
-          ESP_LOGW(TAG, "Packet Parse Error (CRC/Header mismatch)");
-          stats_.packetsFailed++;
-        }
+	auto packetOpt = PacketParser::parse(phyBuffer_, len);
+	if (packetOpt.has_value())
+	{
+	  radio_->startReceive();
+	  return packetOpt;
+	}
+	else
+	{
+	  ESP_LOGW(TAG, "Packet Parse Error (CRC/Header mismatch)");
+	  stats_.packetsFailed++;
+	}
       }
       else
       {
-        ESP_LOGE(TAG, "Radio readData failed: %d", state);
-        stats_.packetsFailed++;
+	ESP_LOGE(TAG, "Radio readData failed: %d", state);
+	stats_.packetsFailed++;
       }
     }
     else
@@ -335,7 +339,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
   if (dropPacketCallback_ && dropPacketCallback_(packet))
   {
     ESP_LOGW(TAG, "[SIMULATED LOSS] Artificially dropping Packet: MsgID=%u ChunkIndex=%u/%u",
-             packet.header.messageId, packet.header.chunkIndex + 1, packet.header.totalChunks);
+             (unsigned)packet.header.messageId, (unsigned)(packet.header.chunkIndex + 1), (unsigned)packet.header.totalChunks);
     radio_->startReceive();
     return;
   }
@@ -357,9 +361,9 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       payloadOpt = reassembler_.processPacket(packet, currentTimestampMs);
       if (payloadOpt.has_value())
       {
-        reassembler_.markCompleted(msgId);
-        stats_.packetsRx++;
-        justCompleted = true;
+	reassembler_.markCompleted(msgId);
+	stats_.packetsRx++;
+	justCompleted = true;
       }
     }
 
@@ -394,7 +398,7 @@ void LoRaProtocol::sendSACK(uint16_t messageId, uint8_t totalChunks, bool allRec
   ESP_LOGI(TAG, "Sending SACK for MsgID %u (Len=%u, AllReceived=%d)",
            messageId, (unsigned)bitmap.size(), allReceived ? 1 : 0);
 
-  hal_->delay(25);
+  hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
 
   int state = transmitPacket(ackPacket, "SACK PACKET");
   if (state != RADIOLIB_ERR_NONE)
@@ -445,7 +449,7 @@ int LoRaProtocol::transmitPacket(const Packet &packet, const char *logPrefix)
   int state = radio_->transmit(phyBuffer_, len);
   if (state == RADIOLIB_ERR_NONE)
   {
-    hal_->delay(5);
+    hal_->delay(LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS);
   }
   return state;
 }
