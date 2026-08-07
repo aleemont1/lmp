@@ -11,6 +11,7 @@
 #include "PacketReassembler.hpp"
 #include "PacketSerializer.hpp"
 #include "PacketValidator.hpp"
+#include "SackHelper.hpp"
 
 void setUp(void)
 {
@@ -670,6 +671,35 @@ static void test_reassembler_completed_messages(void)
   TEST_ASSERT_FALSE(reassembler.isCompleted(80));
 }
 
+static void test_sack_helper(void)
+{
+  // Full ACK bitmap for 10 chunks -> 2 bytes (0xFF, 0xFF)
+  auto fullBmp = SackHelper::createFullAckBitmap(10);
+  TEST_ASSERT_EQUAL_INT(2, fullBmp.size());
+  TEST_ASSERT_EQUAL_UINT8(0xFF, fullBmp[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xFF, fullBmp[1]);
+
+  auto missing = SackHelper::getMissingChunkIndices(fullBmp, 10);
+  TEST_ASSERT_EQUAL_INT(0, missing.size());
+
+  // Partial bitmap: Chunk 1 and Chunk 8 missing
+  // Byte 0: chunk 1 missing -> 0b11111101 = 0xFD
+  // Byte 1: chunk 8 missing -> 0b11111110 = 0xFE
+  std::vector<uint8_t> partialBmp = {0xFD, 0xFE};
+  auto missingPartial = SackHelper::getMissingChunkIndices(partialBmp, 10);
+  TEST_ASSERT_EQUAL_INT(2, missingPartial.size());
+  TEST_ASSERT_EQUAL_UINT8(1, missingPartial[0]);
+  TEST_ASSERT_EQUAL_UINT8(8, missingPartial[1]);
+
+  // SACK Packet creation
+  Packet sackPkt = SackHelper::createSackPacket(123, 10, partialBmp);
+  TEST_ASSERT_EQUAL_UINT16(123, sackPkt.header.messageId);
+  TEST_ASSERT_EQUAL_UINT8(PACKET_FLAG_ACK, sackPkt.header.flags);
+  TEST_ASSERT_EQUAL_UINT8(2, sackPkt.header.payloadSize);
+  TEST_ASSERT_EQUAL_UINT8(0xFD, sackPkt.payload.data[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xFE, sackPkt.payload.data[1]);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -712,6 +742,9 @@ int main(void)
   RUN_TEST(test_reassembler_reset);
   RUN_TEST(test_reassembler_get_received_bitmap);
   RUN_TEST(test_reassembler_completed_messages);
+
+  // SackHelper Tests
+  RUN_TEST(test_sack_helper);
 
   return UNITY_END();
 }
