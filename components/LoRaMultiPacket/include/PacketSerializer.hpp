@@ -26,7 +26,7 @@ class PacketSerializer
   /**
    * @brief Splits a raw data buffer into a vector of Packets.
    * * This method calculates the required number of chunks, sets the correct
-   * Message ID, chunk indices, and SOM/EOM flags for each packet.
+   * Message ID, chunk indices, and control flags for each packet.
    * * @param data Pointer to the source data.
    * @param length Length of the source data in bytes.
    * @param packetNumberStart The Message ID to assign to these packets (default: 1).

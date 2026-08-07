@@ -45,7 +45,7 @@ bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
 
   if (reliable)
   {
-    packets.back().header.flags |= PACKET_FLAG_ACK_REQ;
+    packets.back().header.flags |= FLAG_ACK_REQ;
     packets.back().calculateCRC();
     return sendReliable(packets);
   }
@@ -156,7 +156,7 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
 
     ESP_LOGW(TAG, "ACK timeout. Retrying last chunk (%u/%u)", (unsigned)retries, (unsigned)maxRetries);
     Packet retryPkt = packets[totalChunks - 1];
-    retryPkt.header.flags |= PACKET_FLAG_ACK_REQ;
+    retryPkt.header.flags |= FLAG_ACK_REQ;
     retryPkt.calculateCRC();
 
     stats_.chunksTx++;
@@ -201,7 +201,7 @@ bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<u
     if (pktOpt.has_value())
     {
       const auto &packet = pktOpt.value();
-      if ((packet.header.flags & PACKET_FLAG_ACK) && (packet.header.messageId == msgId))
+      if ((packet.header.flags & FLAG_ACK) && (packet.header.messageId == msgId))
       {
 	if (verbose_)
 	{
@@ -241,11 +241,11 @@ bool LoRaProtocol::retransmitMissingChunks(const std::vector<Packet> &packets,
 
     if (k == missingIndices.size() - 1)
     {
-      pkt.header.flags |= PACKET_FLAG_ACK_REQ;
+      pkt.header.flags |= FLAG_ACK_REQ;
     }
     else
     {
-      pkt.header.flags &= ~PACKET_FLAG_ACK_REQ;
+      pkt.header.flags &= ~FLAG_ACK_REQ;
     }
     pkt.calculateCRC();
 
@@ -346,7 +346,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
 
   uint16_t msgId = packet.header.messageId;
 
-  if (packet.header.flags & PACKET_FLAG_ACK)
+  if (packet.header.flags & FLAG_ACK)
   {
     ESP_LOGI(TAG, "Received unexpected SACK packet (ignored outside TX loop)");
   }
@@ -367,7 +367,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       }
     }
 
-    if (packet.header.flags & PACKET_FLAG_ACK_REQ)
+    if (packet.header.flags & FLAG_ACK_REQ)
     {
       bool allReceived = isAlreadyCompleted || justCompleted;
       sendSACK(msgId, packet.header.totalChunks, allReceived);

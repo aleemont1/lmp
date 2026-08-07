@@ -32,7 +32,7 @@ class PacketParser
    *   - Buffer contains minimum required bytes
    *   - Header fields are within valid ranges
    *   - CRC validation (covers header + valid payload, excludes padding)
-   *   - SOM/EOM flag consistency
+   *   - Flag combination validity
    *
    * @param buffer Raw packet buffer from LoRa radio
    * @param length Length of the buffer in bytes

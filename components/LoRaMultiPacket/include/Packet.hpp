@@ -27,15 +27,27 @@ constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
 /**
  * @name Packet Flags
  * @brief Bitmasks for the PacketHeader 'flags' field.
+ *
+ * Bit layout (uint8_t):
+ *   bit 0 (0x01) - reserved
+ *   bit 1 (0x02) - reserved
+ *   bit 2 (0x04) - FLAG_ACK_REQ
+ *   bit 3 (0x08) - FLAG_ACK
+ *   bit 4 (0x10) - FLAG_CONN_REQ
+ *   bit 5 (0x20) - FLAG_CONN_ACK
+ *   bit 6 (0x40) - FLAG_CONN_NACK
+ *   bit 7 (0x80) - reserved
+ *
+ * Start/End of message are derived from chunkIndex and totalChunks,
+ * which are already present in the header — no redundant flags needed.
  * @{
  */
-constexpr uint8_t PACKET_FLAG_SOM = 0x01;        ///< Start of Message: This packet is the first chunk.
-constexpr uint8_t PACKET_FLAG_EOM = 0x02;        ///< End of Message: This packet is the last chunk.
-constexpr uint8_t PACKET_FLAG_ACK_REQ = 0x04;    ///< Acknowledgement Requested (optional feature).
-constexpr uint8_t PACKET_FLAG_ACK = 0x08;        ///< Selective Acknowledgment (SACK) feedback packet.
-constexpr uint8_t PACKET_FLAG_CONN_REQ = 0x10;   ///< Connection Request: Request memory allocation before sending data.
-constexpr uint8_t PACKET_FLAG_CONN_ACK = 0x20;   ///< Connection Acknowledged: Memory allocated successfully.
-constexpr uint8_t PACKET_FLAG_CONN_NACK = 0x40;  ///< Connection Rejected: Out of memory (OOM).
+constexpr uint8_t FLAG_ACK_REQ = 0x04;    ///< Acknowledgement Requested: receiver must send a SACK.
+constexpr uint8_t FLAG_ACK = 0x08;        ///< Selective Acknowledgment (SACK) feedback packet.
+constexpr uint8_t FLAG_CONN_REQ = 0x10;   ///< Connection Request: negotiate session parameters before transfer.
+constexpr uint8_t FLAG_CONN_ACK = 0x20;   ///< Connection Acknowledged: session accepted, parameters confirmed.
+constexpr uint8_t FLAG_CONN_NACK = 0x40;  ///< Connection Rejected: session refused (e.g. out of memory).
+
 /** @} */
 
 #pragma pack(push, 1)  // Ensure no compiler padding is inserted between fields
@@ -70,8 +82,8 @@ struct PacketHeader
   uint8_t payloadSize = 0;
 
   /**
-   * @brief Bitmask of packet attributes (SOM, EOM, ACK).
-   * See PACKET_FLAG_* constants.
+   * @brief Bitmask of packet control flags.
+   * See FLAG_* constants. SOM/EOM are not encoded here: use chunkIndex and totalChunks instead.
    */
   uint8_t flags = 0;
 

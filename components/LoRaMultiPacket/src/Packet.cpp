@@ -54,14 +54,17 @@ void Packet::printPacket() const
   ESP_LOGI(TAG, "######## HEADER ########");
   ESP_LOGI(TAG, "Message ID: %u", (unsigned)this->header.messageId);
 
-  // Decode flags using the new constants
-  bool som = (this->header.flags & PACKET_FLAG_SOM) != 0;
-  bool eom = (this->header.flags & PACKET_FLAG_EOM) != 0;
-  bool ackReq = (this->header.flags & PACKET_FLAG_ACK_REQ) != 0;
-  bool ack = (this->header.flags & PACKET_FLAG_ACK) != 0;
+  // Decode flags
+  bool ackReq = (this->header.flags & FLAG_ACK_REQ) != 0;
+  bool ack = (this->header.flags & FLAG_ACK) != 0;
+  bool connReq = (this->header.flags & FLAG_CONN_REQ) != 0;
+  bool connAck = (this->header.flags & FLAG_CONN_ACK) != 0;
+  bool connNack = (this->header.flags & FLAG_CONN_NACK) != 0;
 
-  ESP_LOGI(TAG, "Flags: 0x%02X (SOM=%d, EOM=%d, ACKReq=%d, ACK=%d)",
-           (unsigned)this->header.flags, som ? 1 : 0, eom ? 1 : 0, ackReq ? 1 : 0, ack ? 1 : 0);
+  ESP_LOGI(TAG, "Flags: 0x%02X (ACKReq=%d, ACK=%d, ConnReq=%d, ConnAck=%d, ConnNack=%d)",
+           (unsigned)this->header.flags,
+           ackReq ? 1 : 0, ack ? 1 : 0,
+           connReq ? 1 : 0, connAck ? 1 : 0, connNack ? 1 : 0);
 
   ESP_LOGI(TAG, "Total Chunks:\t%u", (unsigned)this->header.totalChunks);
   ESP_LOGI(TAG, "Chunk Index:\t%u", (unsigned)(this->header.chunkIndex + 1));

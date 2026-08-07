@@ -94,7 +94,7 @@ static void test_split_and_reassemble(void)
 }
 
 /**
- * @brief Verifies that SOM and EOM flags are set correctly.
+ * @brief Verifies that flags are left at 0 after split (SOM/EOM removed).
  */
 static void test_packet_flags_multipacket(void)
 {
@@ -102,21 +102,14 @@ static void test_packet_flags_multipacket(void)
   size_t total = 600;
   std::vector<uint8_t> data(total, 0xAB);
 
-  // The second argument is packetNumberStart (Message ID)
   auto packets = PacketSerializer::splitVectorToPackets(data, 100);
 
   TEST_ASSERT_EQUAL_INT(3, packets.size());
 
-  // Packet 0: SOM only
-  TEST_ASSERT_BITS_HIGH(PACKET_FLAG_SOM, packets[0].header.flags);
-  TEST_ASSERT_BITS_LOW(PACKET_FLAG_EOM, packets[0].header.flags);
-
-  // Packet 1: Middle packet
+  // All packets have flags == 0 after split; control flags are set by the caller
+  TEST_ASSERT_EQUAL_HEX8(0x00, packets[0].header.flags);
   TEST_ASSERT_EQUAL_HEX8(0x00, packets[1].header.flags);
-
-  // Packet 2: EOM only
-  TEST_ASSERT_BITS_LOW(PACKET_FLAG_SOM, packets[2].header.flags);
-  TEST_ASSERT_BITS_HIGH(PACKET_FLAG_EOM, packets[2].header.flags);
+  TEST_ASSERT_EQUAL_HEX8(0x00, packets[2].header.flags);
 }
 
 static void test_packet_flags_single_packet(void)
@@ -125,8 +118,8 @@ static void test_packet_flags_single_packet(void)
   auto packets = PacketSerializer::splitVectorToPackets(data, 100);
 
   TEST_ASSERT_EQUAL_INT(1, packets.size());
-  // Should be both SOM (0x01) and EOM (0x02) -> 0x03
-  TEST_ASSERT_EQUAL_HEX8(0x03, packets[0].header.flags);
+  // No SOM/EOM flags; start/end derived from chunkIndex and totalChunks
+  TEST_ASSERT_EQUAL_HEX8(0x00, packets[0].header.flags);
 }
 
 /**
@@ -170,7 +163,7 @@ static void test_parser_valid_single_chunk(void)
   pkt.header.totalChunks = 1;
   pkt.header.chunkIndex = 0;
   pkt.header.payloadSize = 24;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.flags = 0;
   pkt.header.protocolVersion = 1;
 
   std::memcpy(pkt.payload.data, "Single chunk packet test", 24);
@@ -198,7 +191,7 @@ static void test_parser_rejects_invalid_protocol_version(void)
   pkt.header.messageId = 1;
   pkt.header.totalChunks = 1;
   pkt.header.chunkIndex = 0;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.flags = 0;
   pkt.header.protocolVersion = 99;  // Invalid
   pkt.header.payloadSize = 10;
   std::memset(pkt.payload.data, 0, 10);
@@ -218,7 +211,7 @@ static void test_parser_rejects_crc_mismatch(void)
   pkt.header.messageId = 1;
   pkt.header.totalChunks = 1;
   pkt.header.chunkIndex = 0;
-  pkt.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  pkt.header.flags = 0;
   pkt.header.payloadSize = 32;
   pkt.header.protocolVersion = 1;
   std::memset(pkt.payload.data, 0xAA, 32);
@@ -257,7 +250,7 @@ static Packet create_valid_base_packet()
   p.header.totalChunks = 1;
   p.header.chunkIndex = 0;
   p.header.payloadSize = 10;
-  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;
+  p.header.flags = 0;
   p.header.protocolVersion = 1;
   std::memset(p.payload.data, 0xAB, 10);
   p.calculateCRC();
@@ -300,7 +293,6 @@ static void test_validator_invalid_chunk_index(void)
   Packet p = create_valid_base_packet();
   p.header.totalChunks = 3;
   p.header.chunkIndex = 3;  // Must be < totalChunks (0, 1, 2)
-  p.header.flags = 0;       // Clear SOM/EOM to avoid flag errors first
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
@@ -322,64 +314,12 @@ static void test_validator_invalid_payload_size_non_final_partial(void)
   Packet p = create_valid_base_packet();
   p.header.totalChunks = 2;
   p.header.chunkIndex = 0;
-  p.header.payloadSize = 10;         // Non-final chunk must be full size (LORA_MAX_PAYLOAD_SIZE)
-  p.header.flags = PACKET_FLAG_SOM;  // Valid flags for chunk 0
+  p.header.payloadSize = 10;  // Non-final chunk must be full size (LORA_MAX_PAYLOAD_SIZE)
+  p.header.flags = 0;
   p.calculateCRC();
   auto err = PacketValidator::validate(p);
   TEST_ASSERT_TRUE(err.has_value());
   TEST_ASSERT_EQUAL(ValidationError::Type::INVALID_PAYLOAD_SIZE, err.value().type);
-}
-
-static void test_validator_invalid_som_flag_missing(void)
-{
-  Packet p = create_valid_base_packet();
-  p.header.totalChunks = 2;
-  p.header.chunkIndex = 0;
-  p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE;
-  p.header.flags = 0;  // Missing SOM
-  p.calculateCRC();
-  auto err = PacketValidator::validate(p);
-  TEST_ASSERT_TRUE(err.has_value());
-  TEST_ASSERT_EQUAL(ValidationError::Type::INVALID_SOM_FLAG, err.value().type);
-}
-
-static void test_validator_invalid_som_flag_unexpected(void)
-{
-  Packet p = create_valid_base_packet();
-  p.header.totalChunks = 2;
-  p.header.chunkIndex = 1;
-  p.header.payloadSize = 10;
-  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;  // SOM unexpected on chunk 1
-  p.calculateCRC();
-  auto err = PacketValidator::validate(p);
-  TEST_ASSERT_TRUE(err.has_value());
-  TEST_ASSERT_EQUAL(ValidationError::Type::INVALID_SOM_FLAG, err.value().type);
-}
-
-static void test_validator_invalid_eom_flag_missing(void)
-{
-  Packet p = create_valid_base_packet();
-  p.header.totalChunks = 2;
-  p.header.chunkIndex = 1;
-  p.header.payloadSize = 10;
-  p.header.flags = 0;  // Missing EOM on final chunk
-  p.calculateCRC();
-  auto err = PacketValidator::validate(p);
-  TEST_ASSERT_TRUE(err.has_value());
-  TEST_ASSERT_EQUAL(ValidationError::Type::INVALID_EOM_FLAG, err.value().type);
-}
-
-static void test_validator_invalid_eom_flag_unexpected(void)
-{
-  Packet p = create_valid_base_packet();
-  p.header.totalChunks = 2;
-  p.header.chunkIndex = 0;
-  p.header.payloadSize = LORA_MAX_PAYLOAD_SIZE;
-  p.header.flags = PACKET_FLAG_SOM | PACKET_FLAG_EOM;  // EOM unexpected on chunk 0
-  p.calculateCRC();
-  auto err = PacketValidator::validate(p);
-  TEST_ASSERT_TRUE(err.has_value());
-  TEST_ASSERT_EQUAL(ValidationError::Type::INVALID_EOM_FLAG, err.value().type);
 }
 
 static void test_validator_crc_mismatch(void)
@@ -408,13 +348,8 @@ Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::str
   p.header.protocolVersion = 1;
   std::memcpy(p.payload.data, content.data(), content.size());
 
-  // Set flags correctly based on chunk index
-  uint8_t flags = 0;
-  if (index == 0)
-    flags |= PACKET_FLAG_SOM;
-  if (index == total - 1)
-    flags |= PACKET_FLAG_EOM;
-  p.header.flags = flags;
+  // flags: start/end-of-message are derived from chunkIndex/totalChunks, not flags
+  p.header.flags = 0;
 
   p.calculateCRC();
   return p;
@@ -611,7 +546,7 @@ static void test_validator_bypass_ack_flags(void)
 {
   Packet ackPacket{};
   ackPacket.header.messageId = 123;
-  ackPacket.header.flags = PACKET_FLAG_ACK;
+  ackPacket.header.flags = FLAG_ACK;
   ackPacket.header.chunkIndex = 0;
   ackPacket.header.totalChunks = 1;
   ackPacket.header.payloadSize = 2;
@@ -696,7 +631,7 @@ static void test_sack_helper(void)
   // SACK Packet creation
   Packet sackPkt = SackHelper::createSackPacket(123, 10, partialBmp);
   TEST_ASSERT_EQUAL_UINT16(123, sackPkt.header.messageId);
-  TEST_ASSERT_EQUAL_UINT8(PACKET_FLAG_ACK, sackPkt.header.flags);
+  TEST_ASSERT_EQUAL_UINT8(FLAG_ACK, sackPkt.header.flags);
   TEST_ASSERT_EQUAL_UINT8(2, sackPkt.header.payloadSize);
   TEST_ASSERT_EQUAL_UINT8(0xFD, sackPkt.payload.data[0]);
   TEST_ASSERT_EQUAL_UINT8(0xFE, sackPkt.payload.data[1]);
@@ -727,10 +662,6 @@ int main(void)
   RUN_TEST(test_validator_invalid_chunk_index);
   RUN_TEST(test_validator_invalid_payload_size_too_large);
   RUN_TEST(test_validator_invalid_payload_size_non_final_partial);
-  RUN_TEST(test_validator_invalid_som_flag_missing);
-  RUN_TEST(test_validator_invalid_som_flag_unexpected);
-  RUN_TEST(test_validator_invalid_eom_flag_missing);
-  RUN_TEST(test_validator_invalid_eom_flag_unexpected);
   RUN_TEST(test_validator_crc_mismatch);
   RUN_TEST(test_validator_bypass_ack_flags);
 

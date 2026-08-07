@@ -85,45 +85,13 @@ std::optional<ValidationError> PacketValidator::validateHeader(
 std::optional<ValidationError> PacketValidator::validateFlags(
     const PacketHeader &header)
 {
-  if (header.flags & PACKET_FLAG_ACK)
+  // CONN_ACK and CONN_NACK are mutually exclusive
+  bool hasConnAck = (header.flags & FLAG_CONN_ACK) != 0;
+  bool hasConnNack = (header.flags & FLAG_CONN_NACK) != 0;
+  if (hasConnAck && hasConnNack)
   {
-    return std::nullopt;  // Skip boundary check for feedback frames
-  }
-
-  bool isFirstChunk = (header.chunkIndex == 0);
-  bool isLastChunk = (header.chunkIndex == header.totalChunks - 1);
-
-  bool hasSOM = (header.flags & PACKET_FLAG_SOM) != 0;
-  bool hasEOM = (header.flags & PACKET_FLAG_EOM) != 0;
-
-  // First chunk must have SOM flag
-  if (isFirstChunk && !hasSOM)
-  {
-    return ValidationError(ValidationError::Type::INVALID_SOM_FLAG,
-                           "Chunk 0 must have SOM (Start of Message) flag set");
-  }
-
-  // Non-first chunk must not have SOM flag
-  if (!isFirstChunk && hasSOM)
-  {
-    return ValidationError(
-        ValidationError::Type::INVALID_SOM_FLAG,
-        "Only chunk 0 can have SOM (Start of Message) flag");
-  }
-
-  // Last chunk must have EOM flag
-  if (isLastChunk && !hasEOM)
-  {
-    return ValidationError(ValidationError::Type::INVALID_EOM_FLAG,
-                           "Final chunk must have EOM (End of Message) flag set");
-  }
-
-  // Non-last chunk must not have EOM flag
-  if (!isLastChunk && hasEOM)
-  {
-    return ValidationError(
-        ValidationError::Type::INVALID_EOM_FLAG,
-        "Only the final chunk can have EOM (End of Message) flag");
+    return ValidationError(ValidationError::Type::INVALID_FLAGS,
+                           "CONN_ACK and CONN_NACK cannot both be set");
   }
 
   return std::nullopt;

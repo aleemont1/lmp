@@ -21,8 +21,7 @@ struct ValidationError
     INVALID_PAYLOAD_SIZE,      ///< payloadSize > LORA_MAX_PAYLOAD_SIZE or (not last chunk && payloadSize != LORA_MAX_PAYLOAD_SIZE)
     INVALID_MESSAGE_ID,        ///< messageId == 0 (reserved)
     CRC_MISMATCH,              ///< CRC validation failed
-    INVALID_SOM_FLAG,          ///< SOM flag not set on chunk 0
-    INVALID_EOM_FLAG,          ///< EOM flag not set on last chunk
+    INVALID_FLAGS,             ///< Illegal flag combination detected
   };
 
   Type type;
@@ -56,8 +55,7 @@ class PacketValidator
    *   - Header fields are within valid ranges
    *   - Message ID is non-zero
    *   - CRC-16 matches calculated value (covers header + valid payload only)
-   *   - SOM flag is set if this is chunk 0
-   *   - EOM flag is set if this is the last chunk
+   *   - No illegal flag combinations
    *
    * @param packet The packet to validate
    * @return std::nullopt if valid, ValidationError details if invalid
@@ -85,7 +83,7 @@ class PacketValidator
                                                     uint16_t receivedCrc);
 
   /**
-   * @brief Validates SOM/EOM flag consistency.
+   * @brief Validates that no illegal flag combinations are set.
    */
   static std::optional<ValidationError> validateFlags(
       const PacketHeader &header);

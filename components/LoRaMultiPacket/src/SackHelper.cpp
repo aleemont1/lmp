@@ -27,7 +27,7 @@ Packet SackHelper::createSackPacket(uint16_t messageId, uint8_t totalChunks, con
 {
   Packet ackPacket{};
   ackPacket.header.messageId = messageId;
-  ackPacket.header.flags = PACKET_FLAG_ACK;
+  ackPacket.header.flags = FLAG_ACK;
   ackPacket.header.chunkIndex = 0;
   ackPacket.header.totalChunks = 1;
   ackPacket.header.payloadSize = static_cast<uint8_t>(bitmap.size());

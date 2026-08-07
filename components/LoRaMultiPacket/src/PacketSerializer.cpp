@@ -56,17 +56,9 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
                   LORA_MAX_PAYLOAD_SIZE - payloadSize);
     }
 
-    // Set flags using defined constants.
-    uint8_t flags = 0;
-    if (chunkIndex == 0)
-    {
-      flags |= PACKET_FLAG_SOM;
-    }
-    if (chunkIndex == (uint8_t)(totalChunks - 1))  // chunkIndex is 0-based.
-    {
-      flags |= PACKET_FLAG_EOM;
-    }
-    packet.header.flags = flags;
+    // flags field: SOM/EOM are not encoded (redundant with chunkIndex/totalChunks).
+    // Control flags (ACK_REQ, CONN_REQ, etc.) are set by the caller after split.
+    packet.header.flags = 0;
 
     packet.calculateCRC();
     result.push_back(packet);
