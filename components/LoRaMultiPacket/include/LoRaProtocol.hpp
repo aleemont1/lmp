@@ -136,13 +136,13 @@ class LoRaProtocol
   void sendSyn(uint8_t targetAddr, uint16_t msgId, const SynMetadata &syn);
   void sendSynAck(uint8_t targetAddr, uint16_t msgId, const SynAckMetadata &synAck);
   void sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReason reason);
-  bool waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut);
+  bool waitForSynAck(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut);
   bool waitForConnAck(uint16_t msgId, uint32_t timeoutMs);
 
   // Internal helper methods for transmission
   bool sendUnreliable(const std::vector<Packet> &packets);
   bool sendReliable(const std::vector<Packet> &packets);
-  bool waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut);
+  bool waitForSack(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut);
   bool retransmitMissingChunks(const std::vector<Packet> &packets, const std::vector<uint8_t> &missingIndices);
   uint32_t calculateAckTimeoutMs(size_t totalChunks) const;
   int transmitPacket(const Packet &packet, const char *logPrefix);

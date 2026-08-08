@@ -16,7 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char *TAG = "ReliableHWTest";
+static const char *TAG = "LmpHWTest";
 
 // Global Hardware Instances
 EspHal hal_inst(HELTEC_LORA_SCK, HELTEC_LORA_MISO, HELTEC_LORA_MOSI);
@@ -29,26 +29,28 @@ Ssd1306 oled;
 
 // Shared state for logging
 static esp_err_t oledErr = ESP_FAIL;
-static std::string lastRxMsg = "<none>";
-static bool hasReceivedAnyPacket = false;
 static int testCaseCount = 0;
+static uint32_t rxSuccessCount = 0;
+static float lastRssi = 0.0f;
+static float lastSnr = 0.0f;
+static std::string lastStatusStr = "Ready";
 
-void updateOled(const std::string &status, const std::string &extra = "")
+void updateOledDisplay(const std::string &header, const std::string &line1, const std::string &line2, const std::string &line3)
 {
   if (oledErr != ESP_OK)
     return;
   oled.clear();
-  oled.print(0, 0, " LMP HW TEST  ");
-  oled.print(2, 0, ("Case: " + std::to_string(testCaseCount)).c_str());
-  oled.print(4, 0, ("Status: " + status).c_str());
-  oled.print(6, 0, extra.c_str());
+  oled.print(0, 0, header.c_str());
+  oled.print(2, 0, line1.c_str());
+  oled.print(4, 0, line2.c_str());
+  oled.print(6, 0, line3.c_str());
   oled.update();
 }
 
 extern "C" void app_main(void)
 {
   ESP_LOGI(TAG, "=====================================================");
-  ESP_LOGI(TAG, "=== LMP Reliable Mode ACK/NACK Hardware Test Active ===");
+  ESP_LOGI(TAG, "=== LMP v2 4-Mode & Address Validation Test Active ==");
   ESP_LOGI(TAG, "=====================================================");
 
   // Initialize Vext Power
@@ -59,7 +61,7 @@ extern "C" void app_main(void)
 
   // Initialize OLED Display
   oledErr = oled.init();
-  updateOled("Initializing...");
+  updateOledDisplay("LMP v2 HW TEST", "Initializing...", "", "");
 
   // Initialize HAL & RadioLib
   hal->init();
@@ -67,7 +69,7 @@ extern "C" void app_main(void)
   if (state != RADIOLIB_ERR_NONE)
   {
     ESP_LOGE(TAG, "Radio Init Failed: %d", state);
-    updateOled("Radio FAIL!");
+    updateOledDisplay("LMP v2 HW TEST", "Radio FAIL!", "", "");
     while (1)
       vTaskDelay(1000);
   }
@@ -85,85 +87,33 @@ extern "C" void app_main(void)
                              { vTaskDelay(1); });
   protocol->setVerbose(true);
 
-  // Get Node Name
-  uint8_t mac[6];
-  esp_efuse_mac_get_default(mac);
-  char nodeName[32];
-  std::snprintf(nodeName, sizeof(nodeName), "NODE %02X:%02X", mac[4], mac[5]);
-  ESP_LOGI(TAG, "My Node Name: %s", nodeName);
-
 #ifdef NODE_MODE_RX
-  ESP_LOGI(TAG, "Running in RECEIVER Mode (Node Addr: 0x02).");
-  protocol->setNodeAddress(0x02);
-  updateOled("RX Mode 0x02", "Waiting Msg...");
+  uint8_t myAddr = 0x02;
+  protocol->setNodeAddress(myAddr);
+  ESP_LOGI(TAG, "Running in RECEIVER Mode (My Node Addr: 0x%02X).", myAddr);
 
-  // Set drop packet callback to simulate loss
-  // Stateful drop callback to simulate loss: drop chunk indices 1 and 2 ONLY ONCE per message ID.
-  protocol->setDropPacketCallback([](const Packet &packet) -> bool
-                                  {
-    if (packet.header.flags & FLAG_ACK)
-    {
-      return false; 
-    }
-    
-    struct DroppedKey {
-      uint16_t msgId;
-      uint8_t chunkIndex;
-      bool operator==(const DroppedKey& o) const { return msgId == o.msgId && chunkIndex == o.chunkIndex; }
-    };
-    static std::vector<DroppedKey> droppedList;
+  updateOledDisplay("LMP RX [0x02]", "Waiting Msg...", "RX: 0 | Drop: 0", "RSSI: -- dBm");
 
-    if (packet.header.totalChunks >= 3 && (packet.header.chunkIndex == 1 || packet.header.chunkIndex == 2))
-    {
-      DroppedKey key{packet.header.messageId, packet.header.chunkIndex};
-      bool alreadyDropped = false;
-      for (const auto& k : droppedList)
-      {
-        if (k == key) { alreadyDropped = true; break; }
-      }
-      
-      if (!alreadyDropped)
-      {
-        droppedList.push_back(key);
-        ESP_LOGW(TAG, "[LOSS SIMULATION] Drop Callback: MsgID=%u ChunkIndex=%u of %u. DROPPING FOR THE FIRST TIME!", 
-                 packet.header.messageId, packet.header.chunkIndex, packet.header.totalChunks);
-        return true; 
-      }
-    }
-    return false; });
-
-  static int rxConnCount = 0;
   protocol->setOnConnectionRequestCallback([](SynMetadata &syn) -> bool
                                            {
-    rxConnCount++;
-    if (rxConnCount == 2)
-    {
-      ESP_LOGW(TAG, "[TEST SCENARIO 2] Simulating RX Memory Full / BUSY Rejection! Sending CONN_NACK...");
-      updateOled("RX NACK SIM", "Mem Full");
-      return false; // Reject connection!
-    }
-    else if (rxConnCount == 3)
-    {
-      ESP_LOGW(TAG, "[TEST SCENARIO 3] Simulating RX Memory Constraint! Clamping chunk size from %uB to 80B.",
-               (unsigned)syn.requestedPayloadSize);
-      syn.requestedPayloadSize = 80; // Restrict receiver buffer to 80B
-      updateOled("RX CLAMP SIM", "Max: 80B");
-      return true;
-    }
-    ESP_LOGI(TAG, "[TEST SCENARIO %d] Accepting connection with requested params.", rxConnCount);
-    updateOled("RX CONN ACC", "Normal");
+    ESP_LOGI(TAG, "[RX] Accepting 3WHS connection request (reqPayload=%uB)", (unsigned)syn.requestedPayloadSize);
     return true; });
 
   protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr)
                                  {
+    rxSuccessCount++;
+    lastRssi = rssi;
+    lastSnr = snr;
     std::string txt(payload.begin(), payload.end());
-    lastRxMsg = txt;
-    hasReceivedAnyPacket = true;
-    testCaseCount++;
-    ESP_LOGI(TAG, "SUCCESS: >>> MESSAGE RECONSTRUCTED & DELIVERED! (Size: %u)", (unsigned)payload.size());
-    ESP_LOGI(TAG, "Content: %s", txt.substr(0, 80).c_str());
-    ESP_LOGI(TAG, "Metrics: RSSI=%.1f dBm, SNR=%.1f dB", rssi, snr);
-    updateOled("SUCCESS RX", "Len: " + std::to_string(payload.size())); });
+    ESP_LOGI(TAG, "SUCCESS: >>> MESSAGE DELIVERED! (Size: %u, RSSI=%.1fdBm, SNR=%.1fdB)", 
+             (unsigned)payload.size(), rssi, snr);
+    ESP_LOGI(TAG, "Content snippet: %s", txt.substr(0, 60).c_str());
+
+    char line1[32], line2[32], line3[32];
+    std::snprintf(line1, sizeof(line1), "Delivered: #%u", (unsigned)rxSuccessCount);
+    std::snprintf(line2, sizeof(line2), "RX:%u | Drop:%u", (unsigned)rxSuccessCount, (unsigned)protocol->getStats().packetsDroppedAddress);
+    std::snprintf(line3, sizeof(line3), "R:%.0fdB S:%.0fdB", rssi, snr);
+    updateOledDisplay("LMP RX [0x02]", line1, line2, line3); });
 
   // Start receive
   radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
@@ -173,60 +123,117 @@ extern "C" void app_main(void)
   {
     uint32_t currentMs = pdTICKS_TO_MS(xTaskGetTickCount());
     protocol->update(currentMs);
+
+    // Periodically update OLED status display
+    static uint32_t lastOledUpdate = 0;
+    if (currentMs - lastOledUpdate > 2000)
+    {
+      lastOledUpdate = currentMs;
+      char line1[32], line2[32], line3[32];
+      std::snprintf(line1, sizeof(line1), "State: Listening");
+      std::snprintf(line2, sizeof(line2), "RX:%u | Filter:%u", (unsigned)rxSuccessCount, (unsigned)protocol->getStats().packetsDroppedAddress);
+      std::snprintf(line3, sizeof(line3), "R:%.0fdB S:%.0fdB", lastRssi, lastSnr);
+      updateOledDisplay("LMP RX [0x02]", line1, line2, line3);
+    }
+
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 
 #else  // NODE_MODE_TX
-  ESP_LOGI(TAG, "Running in TRANSMITTER Mode (Node Addr: 0x01). Target RX Addr: 0x02.");
-  protocol->setNodeAddress(0x01);
-  updateOled("TX Mode 0x01", "Ready...");
+  uint8_t myAddr = 0x01;
+  protocol->setNodeAddress(myAddr);
+  ESP_LOGI(TAG, "Running in TRANSMITTER Mode (My Node Addr: 0x%02X).", myAddr);
+
+  updateOledDisplay("LMP TX [0x01]", "Initializing...", "Ready to test", "");
   vTaskDelay(pdMS_TO_TICKS(3000));  // wait for receiver to settle
+
+  struct TestCaseSpec
+  {
+    const char *name;
+    uint8_t targetAddr;
+    bool reliable;
+    bool stateful;
+    size_t payloadLen;
+  };
+
+  const TestCaseSpec testCases[] = {
+      {"1. Unrel Unicast", 0x02, false, false, 300},
+      {"2. Unrel Broadcast", 0xFF, false, false, 200},
+      {"3. Filter (Dst 0x05)", 0x05, false, false, 150},
+      {"4. Rel Conn-less", 0x02, true, false, 400},
+      {"5. Rel Stateful 3WHS", 0x02, true, true, 500},
+  };
+
+  size_t numTestCases = sizeof(testCases) / sizeof(testCases[0]);
+  size_t currentCaseIdx = 0;
 
   while (true)
   {
     testCaseCount++;
-    // Generate test data: exactly 800 bytes (splits into 4 chunks: 3 full of 246 + 1 partial of 62)
-    std::string testMsg = "START_RELIABLE_TEST_MSG_ID_" + std::to_string(testCaseCount) + "|";
-    while (testMsg.size() < 780)
+    const auto &testSpec = testCases[currentCaseIdx];
+
+    ESP_LOGI(TAG, "========================================================");
+    ESP_LOGI(TAG, "TEST CASE %d: Running '%s' (Target: 0x%02X, Size: %uB)",
+             testCaseCount, testSpec.name, (unsigned)testSpec.targetAddr, (unsigned)testSpec.payloadLen);
+
+    char l1[32], l2[32], l3[32];
+    std::snprintf(l1, sizeof(l1), "Test %d/%u", (unsigned)(currentCaseIdx + 1), (unsigned)numTestCases);
+    std::snprintf(l2, sizeof(l2), "%s", testSpec.name);
+    std::snprintf(l3, sizeof(l3), "Dst: 0x%02X | Size:%uB", (unsigned)testSpec.targetAddr, (unsigned)testSpec.payloadLen);
+    updateOledDisplay("LMP TX [0x01]", l1, l2, l3);
+
+    // Build payload
+    std::string testMsg = "TX_NODE_0x01|CASE_" + std::to_string(testCaseCount) + "|" + testSpec.name + "|";
+    while (testMsg.size() < testSpec.payloadLen)
     {
-      testMsg += "ABCDEF ";
+      testMsg += "1234567890 ";
     }
-    testMsg += "|END_MSG";
     std::vector<uint8_t> txData(testMsg.begin(), testMsg.end());
 
-    ESP_LOGI(TAG, "--------------------------------------------------------");
-    ESP_LOGI(TAG, "TEST CASE %d: Initiating 3-Way Handshake (connect to 0x02)...", testCaseCount);
-    updateOled("TX CASE " + std::to_string(testCaseCount), "Connecting...");
+    uint64_t startMs = hal->millis();
+    bool testSuccess = false;
 
-    uint64_t startTime = hal->millis();
-    bool connSuccess = protocol->connect(0x02, 5000);
-    if (!connSuccess)
+    if (testSpec.stateful)
     {
-      ESP_LOGE(TAG, "TEST CASE %d RESULT: 3-WAY HANDSHAKE FAILED!", testCaseCount);
-      updateOled("CASE " + std::to_string(testCaseCount) + " FAIL", "3WHS Timeout");
-      vTaskDelay(pdMS_TO_TICKS(8000));
-      continue;
-    }
-
-    ESP_LOGI(TAG, "3-WAY HANDSHAKE ESTABLISHED! Sending %u bytes payload RELIABLY to 0x02...", (unsigned)txData.size());
-    bool sendSuccess = protocol->send(0x02, txData, true);  // reliable = true
-    uint64_t elapsed = hal->millis() - startTime;
-
-    if (sendSuccess)
-    {
-      ESP_LOGI(TAG, "TEST CASE %d RESULT: SUCCESS in %llu ms! (3WHS + Reliable Transfer)", testCaseCount, elapsed);
-      updateOled("CASE " + std::to_string(testCaseCount) + " OK", std::to_string(elapsed) + "ms");
+      // Stateful test: 3WHS connect, then send, then disconnect
+      ESP_LOGI(TAG, "--> Initiating 3WHS connect to 0x%02X...", (unsigned)testSpec.targetAddr);
+      if (protocol->connect(testSpec.targetAddr, 5000))
+      {
+	ESP_LOGI(TAG, "--> 3WHS ESTABLISHED! Sending data...");
+	testSuccess = protocol->send(testSpec.targetAddr, txData, testSpec.reliable);
+	protocol->disconnect();
+      }
+      else
+      {
+	ESP_LOGE(TAG, "--> 3WHS Handshake FAILED!");
+	testSuccess = false;
+      }
     }
     else
     {
-      ESP_LOGE(TAG, "TEST CASE %d RESULT: FAILED! (Timeout or too many retries) in %llu ms", testCaseCount, elapsed);
-      updateOled("CASE " + std::to_string(testCaseCount) + " FAIL", std::to_string(elapsed) + "ms");
+      // Stateless test: direct send
+      testSuccess = protocol->send(testSpec.targetAddr, txData, testSpec.reliable);
     }
 
-    ESP_LOGI(TAG, "--------------------------------------------------------");
+    uint64_t elapsedMs = hal->millis() - startMs;
 
-    // Wait 8 seconds before next test case
-    vTaskDelay(pdMS_TO_TICKS(8000));
+    if (testSuccess)
+    {
+      ESP_LOGI(TAG, "TEST CASE %d RESULT: SUCCESS in %llu ms!", testCaseCount, elapsedMs);
+      std::snprintf(l3, sizeof(l3), "PASS! (%llums)", elapsedMs);
+    }
+    else
+    {
+      ESP_LOGE(TAG, "TEST CASE %d RESULT: FAILED! in %llu ms", testCaseCount, elapsedMs);
+      std::snprintf(l3, sizeof(l3), "FAIL! (%llums)", elapsedMs);
+    }
+    updateOledDisplay("LMP TX [0x01]", l1, l2, l3);
+
+    // Advance test case index
+    currentCaseIdx = (currentCaseIdx + 1) % numTestCases;
+
+    // Pause between test iterations
+    vTaskDelay(pdMS_TO_TICKS(5000));
   }
 
 #endif

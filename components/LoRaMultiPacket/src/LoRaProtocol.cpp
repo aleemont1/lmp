@@ -48,7 +48,7 @@ bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
   sendSyn(targetAddress, msgId, synReq);
 
   SynAckMetadata synAckResp{};
-  if (!waitForSynAck(msgId, timeoutMs, synAckResp))
+  if (!waitForSynAck(targetAddress, msgId, timeoutMs, synAckResp))
   {
     ESP_LOGE(TAG, "3-Way Handshake Failed (SYN-ACK Timeout/NACK for MsgID %u)", msgId);
     connection_.state = ConnectionState::CLOSED;
@@ -145,7 +145,7 @@ void LoRaProtocol::sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReas
   radio_->startReceive();
 }
 
-bool LoRaProtocol::waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut)
+bool LoRaProtocol::waitForSynAck(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut)
 {
   uint32_t startMs = hal_->millis();
 
@@ -157,6 +157,14 @@ bool LoRaProtocol::waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetad
       const Packet &pkt = pktOpt.value();
       if (pkt.header.messageId == msgId)
       {
+	// Edge Case Check: Ignore responses from unexpected nodes if targetAddr is Unicast
+	if (targetAddr != ADDRESS_BROADCAST && pkt.header.srcAddr != targetAddr)
+	{
+	  ESP_LOGW(TAG, "Ignoring SYN-ACK for MsgID %u from unexpected node 0x%02X (expected 0x%02X)",
+	           msgId, (unsigned)pkt.header.srcAddr, (unsigned)targetAddr);
+	  continue;
+	}
+
 	if (pkt.header.flags & FLAG_CONN_NACK)
 	{
 	  stats_.connNacked++;
@@ -248,6 +256,7 @@ bool LoRaProtocol::sendUnreliable(const std::vector<Packet> &packets)
 bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
 {
   uint16_t msgId = packets[0].header.messageId;
+  uint8_t targetAddr = packets[0].header.dstAddr;
   uint8_t totalChunks = static_cast<uint8_t>(packets.size());
   uint32_t ackTimeoutMs = calculateAckTimeoutMs(totalChunks);
 
@@ -284,7 +293,7 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
   while (true)
   {
     std::vector<uint8_t> sackBitmap;
-    if (waitForSack(msgId, ackTimeoutMs, sackBitmap))
+    if (waitForSack(targetAddr, msgId, ackTimeoutMs, sackBitmap))
     {
       auto missingIndices = SackHelper::getMissingChunkIndices(sackBitmap, totalChunks);
       if (missingIndices.empty())
@@ -344,7 +353,7 @@ uint32_t LoRaProtocol::calculateAckTimeoutMs(size_t totalChunks) const
              : timeoutMs;
 }
 
-bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut)
+bool LoRaProtocol::waitForSack(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut)
 {
   uint32_t startTime = hal_->millis();
 
@@ -361,6 +370,14 @@ bool LoRaProtocol::waitForSack(uint16_t msgId, uint32_t timeoutMs, std::vector<u
       const auto &packet = pktOpt.value();
       if ((packet.header.flags & FLAG_ACK) && (packet.header.messageId == msgId))
       {
+	// Edge Case Check: Ignore SACK from unexpected nodes if targetAddr is Unicast
+	if (targetAddr != ADDRESS_BROADCAST && packet.header.srcAddr != targetAddr)
+	{
+	  ESP_LOGW(TAG, "Ignoring SACK for MsgID %u from unexpected node 0x%02X (expected 0x%02X)",
+	           msgId, (unsigned)packet.header.srcAddr, (unsigned)targetAddr);
+	  continue;
+	}
+
 	if (verbose_)
 	{
 	  ESP_LOGI(TAG, "<<< DUMPING RX SACK PACKET <<<");
@@ -506,6 +523,14 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     ESP_LOGI(TAG, "<<< DUMPING RX PACKET <<<");
     packet.printPacket();
     ESP_LOGI(TAG, ">>>>>>>>>>>>>>>>>>>>>>>>>");
+  }
+
+  // Self-Echo Drop: Ignore packet if it originates from our own node address
+  if (nodeAddress_ != ADDRESS_UNASSIGNED && packet.header.srcAddr == nodeAddress_)
+  {
+    ESP_LOGI(TAG, "Ignoring self-echoed packet from my own address 0x%02X", (unsigned)nodeAddress_);
+    radio_->startReceive();
+    return;
   }
 
   // Address Filtering: drop if packet is not for us, not broadcast, and node address is set
