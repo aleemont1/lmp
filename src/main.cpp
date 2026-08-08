@@ -1,15 +1,15 @@
 #ifndef RUN_PAPER_TEST
 #ifndef RUN_HW_TEST
 #include <RadioLib.h>
-#include <string>
-#include <vector>
+
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 #include "EspHal.hpp"
 #include "LoRaProtocol.hpp"
 #include "Ssd1306.hpp"
-
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_random.h"
@@ -31,7 +31,7 @@ Ssd1306 oled;
 [[maybe_unused]] static std::string lastRxMsg = "<none>";
 [[maybe_unused]] static float lastRSSI = 0.0f;
 [[maybe_unused]] static float lastSNR = 0.0f;
-[[maybe_unused]] static int lastTxStatus = 0;            // 0: None, 1: Success, -1: Failure
+[[maybe_unused]] static int lastTxStatus = 0;  // 0: None, 1: Success, -1: Failure
 [[maybe_unused]] static bool hasReceivedAnyPacket = false;
 static esp_err_t oledErr = ESP_FAIL;
 
@@ -44,7 +44,7 @@ extern "C" void app_main(void)
   // 1. Hardware Init: Vext Power ON (controls LoRa module power and OLED display power)
   gpio_reset_pin(HELTEC_POWER_CTRL);
   gpio_set_direction(HELTEC_POWER_CTRL, GPIO_MODE_OUTPUT);
-  gpio_set_level(HELTEC_POWER_CTRL, 0); // Active LOW turns power ON
+  gpio_set_level(HELTEC_POWER_CTRL, 0);  // Active LOW turns power ON
   vTaskDelay(pdMS_TO_TICKS(100));        // Wait for voltage to stabilize
 
   // 2. Initialize OLED Display
@@ -66,7 +66,7 @@ extern "C" void app_main(void)
   // 3. Initialize HAL & RadioLib Driver
   hal->init();
   ESP_LOGI(TAG, "Starting Radio...");
-  int state = radio.begin(868.0); // 868.0 MHz
+  int state = radio.begin(868.0);  // 868.0 MHz
   if (state != RADIOLIB_ERR_NONE)
   {
     ESP_LOGE(TAG, "Radio Init Failed: %d", state);
@@ -85,14 +85,13 @@ extern "C" void app_main(void)
   radio.setSpreadingFactor(7);
   radio.setBandwidth(500.0);
   radio.setCodingRate(5);
-  radio.setSyncWord(0x12);  // Private Network SyncWord
-  radio.setOutputPower(22); // High output power for Heltec boards
+  radio.setSyncWord(0x12);   // Private Network SyncWord
+  radio.setOutputPower(22);  // High output power for Heltec boards
   radio.setPreambleLength(8);
 
   // 5. Initialize Protocol Stack (using custom agnostically injected HAL and DIO1 Pin)
-  protocol->setYieldCallback([]() {
-    updateOledDisplay(pdTICKS_TO_MS(xTaskGetTickCount()));
-  });
+  protocol->setYieldCallback([]()
+                             { updateOledDisplay(pdTICKS_TO_MS(xTaskGetTickCount())); });
 
   // 6. Get Unique Node ID from MAC Address
   uint8_t mac[6];
@@ -103,15 +102,15 @@ extern "C" void app_main(void)
 
 #ifndef NODE_MODE_TX
   // 7. Register Protocol RX Callback
-  protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr) {
+  protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr)
+                                 {
     std::string txt(payload.begin(), payload.end());
     lastRxMsg = txt;
     lastRSSI = rssi;
     lastSNR = snr;
     hasReceivedAnyPacket = true;
     ESP_LOGI(TAG, ">>> RECONSTRUCTED MESSAGE RECEIVED: %s", txt.c_str());
-    ESP_LOGI(TAG, ">>> METRICS: RSSI=%.1f dBm | SNR=%.1f dB | Size=%d bytes", rssi, snr, (int)payload.size());
-  });
+    ESP_LOGI(TAG, ">>> METRICS: RSSI=%.1f dBm | SNR=%.1f dB | Size=%d bytes", rssi, snr, (int)payload.size()); });
 
   // 8. Start Initial Receiver Polling
   radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
@@ -123,7 +122,7 @@ extern "C" void app_main(void)
   // 9. Main Loop Timers
   [[maybe_unused]] uint32_t lastTxTime = 0;
   uint32_t lastOledTime = 0;
-  [[maybe_unused]] uint32_t txInterval = 10000; // Send telemetry every 10 seconds
+  [[maybe_unused]] uint32_t txInterval = 10000;  // Send telemetry every 10 seconds
 
   // Add random jitter to TX timer based on MAC to prevent packet collisions on simultaneous startup
   uint32_t startJitter = (mac[5] % 5) * 1000;
@@ -143,35 +142,40 @@ extern "C" void app_main(void)
     if (currentMs - lastTxTime >= txInterval)
     {
       lastTxTime = currentMs;
-      
+
       // Generate a structured payload of exactly 1000 bytes (will be split into 5 chunks: 4 full + 1 partial)
       std::string msgStr = "START_1000_BYTES_PAYLOAD|";
-      while (msgStr.size() < 978) {
-        msgStr += "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ";
+      while (msgStr.size() < 978)
+      {
+	msgStr += "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ";
       }
-      if (msgStr.size() > 978) {
-        msgStr = msgStr.substr(0, 978);
+      if (msgStr.size() > 978)
+      {
+	msgStr = msgStr.substr(0, 978);
       }
       msgStr += "|END_OF_1000_BYTES";
 
       std::vector<uint8_t> txData(msgStr.begin(), msgStr.end());
 
       ESP_LOGI(TAG, "Transmitting 1000-byte telemetry packet (splits into 5 chunks)...");
-      
+
       if (oledErr == ESP_OK)
       {
-        oled.print(7, 0, "STATUS: SENDING ");
-        oled.update();
+	oled.print(7, 0, "STATUS: SENDING ");
+	oled.update();
       }
 
       bool txSuccess = protocol->send(txData);
-      
-      if (txSuccess) {
-        ESP_LOGI(TAG, "1000-byte payload transmitted successfully.");
-        lastTxStatus = 1;
-      } else {
-        ESP_LOGE(TAG, "1000-byte payload transmission failed.");
-        lastTxStatus = -1;
+
+      if (txSuccess)
+      {
+	ESP_LOGI(TAG, "1000-byte payload transmitted successfully.");
+	lastTxStatus = 1;
+      }
+      else
+      {
+	ESP_LOGE(TAG, "1000-byte payload transmission failed.");
+	lastTxStatus = -1;
       }
     }
 #endif
@@ -195,7 +199,7 @@ void updateOledDisplay(uint32_t currentMs)
 
   auto stats = protocol->getStats();
   oled.clear();
-  
+
   char headerStr[64];
   char uptimeStr[32];
   std::snprintf(uptimeStr, sizeof(uptimeStr), "Uptime:   %lus", (unsigned long)(currentMs / 1000));
@@ -221,11 +225,16 @@ void updateOledDisplay(uint32_t currentMs)
   oled.print(6, 0, "----------------");
 
   char statusStr[32];
-  if (lastTxStatus == 0) {
+  if (lastTxStatus == 0)
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: IDLE    ");
-  } else if (lastTxStatus == 1) {
+  }
+  else if (lastTxStatus == 1)
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: TX OK   ");
-  } else {
+  }
+  else
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: TX FAIL ");
   }
   oled.print(7, 0, statusStr);
@@ -249,9 +258,12 @@ void updateOledDisplay(uint32_t currentMs)
   oled.print(5, 0, rxErrStr);
 
   char signalStr[32];
-  if (hasReceivedAnyPacket) {
+  if (hasReceivedAnyPacket)
+  {
     std::snprintf(signalStr, sizeof(signalStr), "RSSI:%d SNR:%.1f", (int)lastRSSI, lastSNR);
-  } else {
+  }
+  else
+  {
     std::snprintf(signalStr, sizeof(signalStr), "RSSI:--- SNR:---");
   }
   oled.print(6, 0, signalStr);
@@ -276,19 +288,27 @@ void updateOledDisplay(uint32_t currentMs)
   oled.print(5, 0, errLine);
 
   char signalStr[32];
-  if (hasReceivedAnyPacket) {
+  if (hasReceivedAnyPacket)
+  {
     std::snprintf(signalStr, sizeof(signalStr), "RSSI:%d SNR:%.1f", (int)lastRSSI, lastSNR);
-  } else {
+  }
+  else
+  {
     std::snprintf(signalStr, sizeof(signalStr), "RSSI:--- SNR:---");
   }
   oled.print(6, 0, signalStr);
 
   char statusStr[32];
-  if (lastTxStatus == 1) {
+  if (lastTxStatus == 1)
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: TX OK   ");
-  } else if (lastTxStatus == -1) {
+  }
+  else if (lastTxStatus == -1)
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: TX FAIL ");
-  } else {
+  }
+  else
+  {
     std::snprintf(statusStr, sizeof(statusStr), "STATUS: LISTENING");
   }
   oled.print(7, 0, statusStr);
@@ -296,4 +316,4 @@ void updateOledDisplay(uint32_t currentMs)
   oled.update();
 }
 #endif
-#endif // RUN_PAPER_TEST
+#endif  // RUN_PAPER_TEST

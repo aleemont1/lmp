@@ -19,7 +19,8 @@ void PacketSerializer::serialize(const Packet &packet, uint8_t *buffer)
               CRC_SIZE);
 }
 
-std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, size_t length, uint16_t packetNumberStart)
+std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, size_t length, uint16_t packetNumberStart,
+                                                           uint8_t srcAddr, uint8_t dstAddr)
 {
   std::vector<Packet> result;
   if (data == nullptr || length == 0)
@@ -38,6 +39,8 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
   while (offset < length)
   {
     Packet packet{};
+    packet.header.srcAddr = srcAddr;
+    packet.header.dstAddr = dstAddr;
     packet.header.messageId = messageId;
     packet.header.totalChunks = totalChunks;
     packet.header.chunkIndex = chunkIndex;
@@ -70,7 +73,8 @@ std::vector<Packet> PacketSerializer::splitBufferToPackets(const uint8_t *data, 
   return result;
 }
 
-std::vector<Packet> PacketSerializer::splitVectorToPackets(const std::vector<uint8_t> &data, uint16_t packetNumberStart)
+std::vector<Packet> PacketSerializer::splitVectorToPackets(const std::vector<uint8_t> &data, uint16_t packetNumberStart,
+                                                           uint8_t srcAddr, uint8_t dstAddr)
 {
-  return splitBufferToPackets(data.empty() ? nullptr : data.data(), data.size(), packetNumberStart);
+  return splitBufferToPackets(data.empty() ? nullptr : data.data(), data.size(), packetNumberStart, srcAddr, dstAddr);
 }

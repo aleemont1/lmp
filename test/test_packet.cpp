@@ -124,11 +124,13 @@ static void test_packet_flags_single_packet(void)
 }
 
 /**
- * @brief Verifies binary serialization layout.
+ * @brief Verifies binary serialization layout with node addresses.
  */
 static void test_binary_serialization_layout(void)
 {
   Packet p{};
+  p.header.srcAddr = 0x05;
+  p.header.dstAddr = 0x42;
   p.header.messageId = 0x1234;
   p.header.payloadSize = 1;
   p.payload.data[0] = 0xEE;
@@ -139,9 +141,13 @@ static void test_binary_serialization_layout(void)
 
   PacketSerializer::serialize(p, buffer);
 
-  // Check Header (Message ID, Little-endian: 0x34, 0x12)
-  TEST_ASSERT_EQUAL_HEX8(0x34, buffer[0]);
-  TEST_ASSERT_EQUAL_HEX8(0x12, buffer[1]);
+  // Check Address Fields
+  TEST_ASSERT_EQUAL_HEX8(0x05, buffer[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x42, buffer[1]);
+
+  // Check Header (Message ID at offset 2, Little-endian: 0x34, 0x12)
+  TEST_ASSERT_EQUAL_HEX8(0x34, buffer[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x12, buffer[3]);
 
   // Check Payload (Offset HEADER_SIZE)
   TEST_ASSERT_EQUAL_HEX8(0xEE, buffer[HEADER_SIZE]);
@@ -151,6 +157,20 @@ static void test_binary_serialization_layout(void)
   uint16_t serializedCrc = 0;
   std::memcpy(&serializedCrc, buffer + crcOffset, 2);
   TEST_ASSERT_EQUAL_UINT16(p.crc, serializedCrc);
+}
+
+/**
+ * @brief Verifies that splitVectorToPackets populates srcAddr and dstAddr correctly.
+ */
+static void test_node_addressing_serialization(void)
+{
+  std::vector<uint8_t> data = {0x01, 0x02, 0x03, 0x04};
+  auto packets = PacketSerializer::splitVectorToPackets(data, 10, 0x0A, 0x0B);
+
+  TEST_ASSERT_EQUAL_INT(1, packets.size());
+  TEST_ASSERT_EQUAL_HEX8(0x0A, packets[0].header.srcAddr);
+  TEST_ASSERT_EQUAL_HEX8(0x0B, packets[0].header.dstAddr);
+  TEST_ASSERT_EQUAL_UINT16(10, packets[0].header.messageId);
 }
 
 // ============================================================================
@@ -704,6 +724,7 @@ int main(void)
   RUN_TEST(test_packet_flags_multipacket);
   RUN_TEST(test_packet_flags_single_packet);
   RUN_TEST(test_binary_serialization_layout);
+  RUN_TEST(test_node_addressing_serialization);
 
   // Parser & Deserializer tests
   RUN_TEST(test_parser_valid_single_chunk);

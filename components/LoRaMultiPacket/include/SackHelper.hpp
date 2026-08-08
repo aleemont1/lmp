@@ -25,5 +25,6 @@ class SackHelper
   /**
    * @brief Constructs a validated SACK Packet structure containing the given bitmap.
    */
-  static Packet createSackPacket(uint16_t messageId, uint8_t totalChunks, const std::vector<uint8_t> &bitmap);
+  static Packet createSackPacket(uint16_t messageId, uint8_t totalChunks, const std::vector<uint8_t> &bitmap,
+                                 uint8_t srcAddr = ADDRESS_UNASSIGNED, uint8_t dstAddr = ADDRESS_BROADCAST);
 };

@@ -23,7 +23,7 @@ class LoRaProtocol
 {
  public:
   using OnReceiveCallback = std::function<void(const std::vector<uint8_t> &data, float rssi, float snr)>;
-  using OnConnectionRequestCallback = std::function<bool(const SynMetadata &syn)>;
+  using OnConnectionRequestCallback = std::function<bool(SynMetadata &syn)>;
   using YieldCallback = std::function<void()>;
   using DropPacketCallback = std::function<bool(const Packet &packet)>;
 
@@ -33,11 +33,30 @@ class LoRaProtocol
   explicit LoRaProtocol(SX1262 *radio, RadioLibHal *hal, uint32_t irqPin);
 
   /**
-   * @brief Initiates a 3-way handshake (SYN, SYN-ACK, ACK) to establish a connection session. Blocking.
+   * @brief Sets the local node address (0x01..0xFE).
+   */
+  void setNodeAddress(uint8_t address) { nodeAddress_ = address; }
+
+  /**
+   * @brief Returns the local node address.
+   */
+  uint8_t getNodeAddress() const { return nodeAddress_; }
+
+  /**
+   * @brief Initiates a 3-way handshake (SYN, SYN-ACK, ACK) to establish a connection session with a target node. Blocking.
+   * @param targetAddress Address of the destination node.
    * @param timeoutMs Maximum time to wait for handshake completion.
    * @return true if connection established successfully, false otherwise.
    */
-  bool connect(uint32_t timeoutMs = LoRaMultiPacketConfig::DEFAULT_SYN_TIMEOUT_MS);
+  bool connect(uint8_t targetAddress, uint32_t timeoutMs = LoRaMultiPacketConfig::DEFAULT_SYN_TIMEOUT_MS);
+
+  /**
+   * @brief Initiates a 3-way handshake with default broadcast/unassigned target. Overload for backwards compatibility.
+   */
+  bool connect(uint32_t timeoutMs = LoRaMultiPacketConfig::DEFAULT_SYN_TIMEOUT_MS)
+  {
+    return connect(ADDRESS_BROADCAST, timeoutMs);
+  }
 
   /**
    * @brief Teardown active connection session.
@@ -55,9 +74,17 @@ class LoRaProtocol
   ConnectionState getConnectionState() const { return connection_.state; }
 
   /**
-   * @brief Sends a payload by splitting it into chunks. Blocking.
+   * @brief Sends a payload to a specific target node. Blocking.
    */
-  bool send(const std::vector<uint8_t> &data, bool reliable = false);
+  bool send(uint8_t targetAddress, const std::vector<uint8_t> &data, bool reliable = false);
+
+  /**
+   * @brief Sends a payload to default broadcast target. Overload for backwards compatibility.
+   */
+  bool send(const std::vector<uint8_t> &data, bool reliable = false)
+  {
+    return send(ADDRESS_BROADCAST, data, reliable);
+  }
 
   /**
    * @brief Main loop update. Handles RX polling, reassembly timeouts, and connection maintenance.
@@ -77,6 +104,7 @@ class LoRaProtocol
     uint32_t chunksRx = 0;
     uint32_t packetsRx = 0;
     uint32_t packetsFailed = 0;
+    uint32_t packetsDroppedAddress = 0;
     uint32_t packetsTx = 0;
     uint32_t packetsTxFailed = 0;
     uint32_t synSent = 0;
@@ -89,9 +117,10 @@ class LoRaProtocol
   void resetStats() { stats_ = ProtocolStats(); }
 
  private:
-  SX1262 *radio_;     ///< Pointer to SX1262 driver
-  RadioLibHal *hal_;  ///< Pointer to hardware HAL
-  uint32_t irqPin_;   ///< Hardware interrupt pin (e.g. DIO1)
+  SX1262 *radio_;        ///< Pointer to SX1262 driver
+  RadioLibHal *hal_;     ///< Pointer to hardware HAL
+  uint32_t irqPin_;      ///< Hardware interrupt pin (e.g. DIO1)
+  uint8_t nodeAddress_;  ///< Local node address (0x00=Unassigned, 0x01..0xFE=Node, 0xFF=Broadcast)
   PacketReassembler reassembler_;
   ConnectionSession connection_;
   OnReceiveCallback onReceive_;
@@ -104,9 +133,9 @@ class LoRaProtocol
   uint8_t phyBuffer_[LoRaMultiPacketConfig::PHY_BUFFER_SIZE];  ///< Shared buffer for hardware I/O
 
   // Internal helper methods for 3-Way Handshake
-  void sendSyn(uint16_t msgId, const SynMetadata &syn);
-  void sendSynAck(uint16_t msgId, const SynAckMetadata &synAck);
-  void sendConnNack(uint16_t msgId, ConnNackReason reason);
+  void sendSyn(uint8_t targetAddr, uint16_t msgId, const SynMetadata &syn);
+  void sendSynAck(uint8_t targetAddr, uint16_t msgId, const SynAckMetadata &synAck);
+  void sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReason reason);
   bool waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut);
   bool waitForConnAck(uint16_t msgId, uint32_t timeoutMs);
 
@@ -119,7 +148,7 @@ class LoRaProtocol
   int transmitPacket(const Packet &packet, const char *logPrefix);
 
   // Internal helper methods for reception
-  void sendSACK(uint16_t messageId, uint8_t totalChunks, bool allReceived);
+  void sendSACK(uint8_t targetAddr, uint16_t messageId, uint8_t totalChunks, bool allReceived);
   std::optional<Packet> tryReceivePacket();
   void handleIncomingPacket(const Packet &packet, uint32_t currentTimestampMs);
 };

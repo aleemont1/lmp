@@ -50,14 +50,33 @@ constexpr uint8_t FLAG_CONN_NACK = 0x40;  ///< Connection Rejected: session refu
 
 /** @} */
 
+/**
+ * @name Node Address Constants
+ * @brief Default node address identifiers.
+ * @{
+ */
+constexpr uint8_t ADDRESS_UNASSIGNED = 0x00;  ///< Unassigned / P2P Unaddressed Mode
+constexpr uint8_t ADDRESS_BROADCAST = 0xFF;   ///< Broadcast address (processed by all receiving nodes)
+/** @} */
+
 #pragma pack(push, 1)  // Ensure no compiler padding is inserted between fields
 
 /**
  * @brief Header structure containing metadata for segmentation and reassembly.
- * Total size: 7 bytes.
+ * Total size: 9 bytes.
  */
 struct PacketHeader
 {
+  /**
+   * @brief Source node identifier.
+   */
+  uint8_t srcAddr = ADDRESS_UNASSIGNED;
+
+  /**
+   * @brief Destination node identifier (0xFF for broadcast).
+   */
+  uint8_t dstAddr = ADDRESS_BROADCAST;
+
   /**
    * @brief Unique identifier for a complete message.
    * All chunks belonging to the same large message must share this ID.

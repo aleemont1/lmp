@@ -1,40 +1,41 @@
 #include "Ssd1306.hpp"
-#include "font8x8.h"
 
 #include <cstring>
-#include "driver/i2c.h"
+
 #include "driver/gpio.h"
+#include "driver/i2c.h"
+#include "esp_log.h"
+#include "font8x8.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 
 static const char *TAG = "Oled";
 
-#define I2C_MASTER_NUM             I2C_NUM_0
-#define I2C_MASTER_SDA_IO          17
-#define I2C_MASTER_SCL_IO          18
-#define I2C_MASTER_FREQ_HZ         400000
-#define OLED_I2C_ADDR              0x3C
-#define OLED_RST_PIN               GPIO_NUM_21
+#define I2C_MASTER_NUM I2C_NUM_0
+#define I2C_MASTER_SDA_IO 17
+#define I2C_MASTER_SCL_IO 18
+#define I2C_MASTER_FREQ_HZ 400000
+#define OLED_I2C_ADDR 0x3C
+#define OLED_RST_PIN GPIO_NUM_21
 
 // SSD1306 Initialization Commands
 static const uint8_t OLED_INIT_CMDS[] = {
-    0xAE,         // 1. Display Off
-    0xD5, 0x80,   // 2. Set Display Clock Divide Ratio/Oscillator Frequency
-    0xA8, 0x3F,   // 3. Set Multiplex Ratio (64)
-    0xD3, 0x00,   // 4. Set Display Offset
-    0x40,         // 5. Set Display Start Line (0)
-    0x8D, 0x14,   // 6. Charge Pump Regulator (Enable)
-    0x20, 0x00,   // 7. Memory Addressing Mode (Horizontal)
-    0xA1,         // 8. Set Segment Re-map (column 127 mapped to SEG0)
-    0xC8,         // 9. Set COM Output Scan Direction (remapped)
-    0xDA, 0x12,   // 10. Set COM Pins Hardware Configuration
-    0x81, 0xCF,   // 11. Set Contrast Control
-    0xD9, 0xF1,   // 12. Set Pre-charge Period
-    0xDB, 0x40,   // 13. Set VCOMH Deselect Level
-    0xA4,         // 14. Entire Display On (Resume to RAM content)
-    0xA6,         // 15. Set Normal Display
-    0xAF          // 16. Display On
+    0xAE,        // 1. Display Off
+    0xD5, 0x80,  // 2. Set Display Clock Divide Ratio/Oscillator Frequency
+    0xA8, 0x3F,  // 3. Set Multiplex Ratio (64)
+    0xD3, 0x00,  // 4. Set Display Offset
+    0x40,        // 5. Set Display Start Line (0)
+    0x8D, 0x14,  // 6. Charge Pump Regulator (Enable)
+    0x20, 0x00,  // 7. Memory Addressing Mode (Horizontal)
+    0xA1,        // 8. Set Segment Re-map (column 127 mapped to SEG0)
+    0xC8,        // 9. Set COM Output Scan Direction (remapped)
+    0xDA, 0x12,  // 10. Set COM Pins Hardware Configuration
+    0x81, 0xCF,  // 11. Set Contrast Control
+    0xD9, 0xF1,  // 12. Set Pre-charge Period
+    0xDB, 0x40,  // 13. Set VCOMH Deselect Level
+    0xA4,        // 14. Entire Display On (Resume to RAM content)
+    0xA6,        // 15. Set Normal Display
+    0xAF         // 16. Display On
 };
 
 Ssd1306::Ssd1306()
@@ -61,7 +62,7 @@ esp_err_t Ssd1306::init()
   }
 
   err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
-  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) // Invalid state means already installed
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)  // Invalid state means already installed
   {
     ESP_LOGE(TAG, "I2C Driver Install Failed: %d", err);
     return err;
@@ -103,7 +104,7 @@ void Ssd1306::print(int row, int col, const char *str)
   {
     uint8_t c = static_cast<uint8_t>(*str++);
     if (c > 127)
-      c = ' '; // Replace non-ascii with space
+      c = ' ';  // Replace non-ascii with space
 
     const uint8_t *glyph = reinterpret_cast<const uint8_t *>(font8x8_basic[c]);
 
@@ -113,10 +114,10 @@ void Ssd1306::print(int row, int col, const char *str)
       uint8_t column_byte = 0;
       for (int y = 0; y < 8; ++y)
       {
-        if (glyph[y] & (1 << x))
-        {
-          column_byte |= (1 << y);
-        }
+	if (glyph[y] & (1 << x))
+	{
+	  column_byte |= (1 << y);
+	}
       }
       buffer_[buffer_idx + x] = column_byte;
     }
@@ -138,7 +139,7 @@ void Ssd1306::update()
 
   // Transmit buffer
   uint8_t temp[1025];
-  temp[0] = 0x40; // Data write prefix
+  temp[0] = 0x40;  // Data write prefix
   std::memcpy(temp + 1, buffer_, 1024);
 
   i2c_master_write_to_device(I2C_MASTER_NUM, OLED_I2C_ADDR, temp, 1025, pdMS_TO_TICKS(500));

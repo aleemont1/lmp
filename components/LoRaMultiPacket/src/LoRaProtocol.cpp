@@ -17,6 +17,7 @@ LoRaProtocol::LoRaProtocol(SX1262 *radio, RadioLibHal *hal, uint32_t irqPin)
     : radio_(radio),
       hal_(hal),
       irqPin_(irqPin),
+      nodeAddress_(ADDRESS_UNASSIGNED),
       onConnRequest_(nullptr),
       dropPacketCallback_(nullptr),
       verbose_(false),
@@ -26,7 +27,7 @@ LoRaProtocol::LoRaProtocol(SX1262 *radio, RadioLibHal *hal, uint32_t irqPin)
   connection_.state = ConnectionState::CLOSED;
 }
 
-bool LoRaProtocol::connect(uint32_t timeoutMs)
+bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
 {
   uint16_t msgId = nextMessageId_++;
   if (nextMessageId_ == 0)
@@ -43,8 +44,8 @@ bool LoRaProtocol::connect(uint32_t timeoutMs)
   synReq.windowSize = 1;
   synReq.timeoutMs = static_cast<uint16_t>(timeoutMs);
 
-  ESP_LOGI(TAG, "Initiating 3-Way Handshake (MsgID %u, SYN sent)...", msgId);
-  sendSyn(msgId, synReq);
+  ESP_LOGI(TAG, "Initiating 3-Way Handshake (MsgID %u, SYN sent to 0x%02X)...", msgId, (unsigned)targetAddress);
+  sendSyn(targetAddress, msgId, synReq);
 
   SynAckMetadata synAckResp{};
   if (!waitForSynAck(msgId, timeoutMs, synAckResp))
@@ -56,6 +57,8 @@ bool LoRaProtocol::connect(uint32_t timeoutMs)
 
   // Send final ACK of the 3-Way Handshake
   Packet ackPacket{};
+  ackPacket.header.srcAddr = nodeAddress_;
+  ackPacket.header.dstAddr = targetAddress;
   ackPacket.header.messageId = msgId;
   ackPacket.header.totalChunks = 1;
   ackPacket.header.chunkIndex = 0;
@@ -86,9 +89,11 @@ void LoRaProtocol::disconnect()
   }
 }
 
-void LoRaProtocol::sendSyn(uint16_t msgId, const SynMetadata &syn)
+void LoRaProtocol::sendSyn(uint8_t targetAddr, uint16_t msgId, const SynMetadata &syn)
 {
   Packet p{};
+  p.header.srcAddr = nodeAddress_;
+  p.header.dstAddr = targetAddr;
   p.header.messageId = msgId;
   p.header.totalChunks = 1;
   p.header.chunkIndex = 0;
@@ -102,9 +107,11 @@ void LoRaProtocol::sendSyn(uint16_t msgId, const SynMetadata &syn)
   radio_->startReceive();
 }
 
-void LoRaProtocol::sendSynAck(uint16_t msgId, const SynAckMetadata &synAck)
+void LoRaProtocol::sendSynAck(uint8_t targetAddr, uint16_t msgId, const SynAckMetadata &synAck)
 {
   Packet p{};
+  p.header.srcAddr = nodeAddress_;
+  p.header.dstAddr = targetAddr;
   p.header.messageId = msgId;
   p.header.totalChunks = 1;
   p.header.chunkIndex = 0;
@@ -119,9 +126,11 @@ void LoRaProtocol::sendSynAck(uint16_t msgId, const SynAckMetadata &synAck)
   radio_->startReceive();
 }
 
-void LoRaProtocol::sendConnNack(uint16_t msgId, ConnNackReason reason)
+void LoRaProtocol::sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReason reason)
 {
   Packet p{};
+  p.header.srcAddr = nodeAddress_;
+  p.header.dstAddr = targetAddr;
   p.header.messageId = msgId;
   p.header.totalChunks = 1;
   p.header.chunkIndex = 0;
@@ -173,7 +182,7 @@ bool LoRaProtocol::waitForSynAck(uint16_t msgId, uint32_t timeoutMs, SynAckMetad
   return false;
 }
 
-bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
+bool LoRaProtocol::send(uint8_t targetAddress, const std::vector<uint8_t> &data, bool reliable)
 {
   if (data.empty())
   {
@@ -186,7 +195,7 @@ bool LoRaProtocol::send(const std::vector<uint8_t> &data, bool reliable)
     nextMessageId_ = 1;
   }
 
-  std::vector<Packet> packets = PacketSerializer::splitVectorToPackets(data, msgId);
+  std::vector<Packet> packets = PacketSerializer::splitVectorToPackets(data, msgId, nodeAddress_, targetAddress);
   if (packets.empty())
   {
     return false;
@@ -499,6 +508,18 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     ESP_LOGI(TAG, ">>>>>>>>>>>>>>>>>>>>>>>>>");
   }
 
+  // Address Filtering: drop if packet is not for us, not broadcast, and node address is set
+  if (packet.header.dstAddr != nodeAddress_ &&
+      packet.header.dstAddr != ADDRESS_BROADCAST &&
+      nodeAddress_ != ADDRESS_UNASSIGNED)
+  {
+    ESP_LOGI(TAG, "Dropping packet not addressed to this node: dstAddr=0x%02X (myAddr=0x%02X, srcAddr=0x%02X)",
+             (unsigned)packet.header.dstAddr, (unsigned)nodeAddress_, (unsigned)packet.header.srcAddr);
+    stats_.packetsDroppedAddress++;
+    radio_->startReceive();
+    return;
+  }
+
   if (dropPacketCallback_ && dropPacketCallback_(packet))
   {
     ESP_LOGW(TAG, "[SIMULATED LOSS] Artificially dropping Packet: MsgID=%u ChunkIndex=%u/%u",
@@ -508,6 +529,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
   }
 
   uint16_t msgId = packet.header.messageId;
+  uint8_t senderAddr = packet.header.srcAddr;
 
   // Handle 3-Way Handshake Connection Control Frames
   if (packet.header.flags & FLAG_CONN_REQ)
@@ -521,7 +543,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       {
 	ESP_LOGE(TAG, "SYN rejected for MsgID %u: Protocol version mismatch (%u != %u)",
 	         msgId, (unsigned)packet.header.protocolVersion, (unsigned)LoRaMultiPacketConfig::PROTOCOL_VERSION);
-	sendConnNack(msgId, ConnNackReason::UNSUPPORTED_VERSION);
+	sendConnNack(senderAddr, msgId, ConnNackReason::UNSUPPORTED_VERSION);
 	return;
       }
 
@@ -531,7 +553,13 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
 	std::memcpy(&synReq, packet.payload.data, sizeof(SynMetadata));
       }
 
-      // Parameter Negotiation & Clamping
+      bool accept = true;
+      if (onConnRequest_)
+      {
+	accept = onConnRequest_(synReq);
+      }
+
+      // Parameter Negotiation & Clamping (after application callback customization)
       uint8_t acceptedPayload = synReq.requestedPayloadSize;
       if (acceptedPayload == 0 || acceptedPayload > LORA_MAX_PAYLOAD_SIZE)
       {
@@ -539,12 +567,6 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       }
 
       uint8_t acceptedWindow = (synReq.windowSize == 0) ? 1 : synReq.windowSize;
-
-      bool accept = true;
-      if (onConnRequest_)
-      {
-	accept = onConnRequest_(synReq);
-      }
 
       if (accept)
       {
@@ -560,14 +582,14 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
 	synAckResp.windowSize = acceptedWindow;
 	synAckResp.reserved = 0;
 
-	ESP_LOGI(TAG, "SYN received for MsgID %u (ReqPayload=%uB -> AccPayload=%uB). Replying with SYN-ACK...",
-	         msgId, (unsigned)synReq.requestedPayloadSize, (unsigned)acceptedPayload);
-	sendSynAck(msgId, synAckResp);
+	ESP_LOGI(TAG, "SYN received for MsgID %u from 0x%02X (ReqPayload=%uB -> AccPayload=%uB). Replying with SYN-ACK...",
+	         msgId, (unsigned)senderAddr, (unsigned)synReq.requestedPayloadSize, (unsigned)acceptedPayload);
+	sendSynAck(senderAddr, msgId, synAckResp);
       }
       else
       {
-	ESP_LOGW(TAG, "SYN received for MsgID %u but application REJECTED connection. Sending NACK.", msgId);
-	sendConnNack(msgId, ConnNackReason::REJECTED);
+	ESP_LOGW(TAG, "SYN received for MsgID %u from 0x%02X but application REJECTED connection. Sending NACK.", msgId, (unsigned)senderAddr);
+	sendConnNack(senderAddr, msgId, ConnNackReason::REJECTED);
       }
       return;
     }
@@ -598,6 +620,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
   {
     bool isAlreadyCompleted = reassembler_.isCompleted(msgId);
     bool justCompleted = false;
+
     std::optional<std::vector<uint8_t>> payloadOpt;
 
     if (!isAlreadyCompleted)
@@ -614,18 +637,18 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     if (packet.header.flags & FLAG_ACK_REQ)
     {
       bool allReceived = isAlreadyCompleted || justCompleted;
-      sendSACK(msgId, packet.header.totalChunks, allReceived);
+      sendSACK(senderAddr, msgId, packet.header.totalChunks, allReceived);
     }
 
     if (justCompleted && onReceive_)
     {
-      ESP_LOGI(TAG, "Reassembly Complete! (%u bytes)", (unsigned)payloadOpt.value().size());
+      ESP_LOGI(TAG, "Reassembly Complete! (%u bytes from 0x%02X)", (unsigned)payloadOpt.value().size(), (unsigned)senderAddr);
       onReceive_(payloadOpt.value(), radio_->getRSSI(), radio_->getSNR());
     }
   }
 }
 
-void LoRaProtocol::sendSACK(uint16_t messageId, uint8_t totalChunks, bool allReceived)
+void LoRaProtocol::sendSACK(uint8_t targetAddr, uint16_t messageId, uint8_t totalChunks, bool allReceived)
 {
   std::vector<uint8_t> bitmap;
   if (allReceived)
@@ -637,10 +660,10 @@ void LoRaProtocol::sendSACK(uint16_t messageId, uint8_t totalChunks, bool allRec
     reassembler_.getReceivedBitmap(messageId, bitmap);
   }
 
-  Packet ackPacket = SackHelper::createSackPacket(messageId, totalChunks, bitmap);
+  Packet ackPacket = SackHelper::createSackPacket(messageId, totalChunks, bitmap, nodeAddress_, targetAddr);
 
-  ESP_LOGI(TAG, "Sending SACK for MsgID %u (Len=%u, AllReceived=%d)",
-           messageId, (unsigned)bitmap.size(), allReceived ? 1 : 0);
+  ESP_LOGI(TAG, "Sending SACK for MsgID %u to 0x%02X (Len=%u, AllReceived=%d)",
+           messageId, (unsigned)targetAddr, (unsigned)bitmap.size(), allReceived ? 1 : 0);
 
   hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
 

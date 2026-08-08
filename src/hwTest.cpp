@@ -1,16 +1,16 @@
 #ifndef RUN_PAPER_TEST
 #ifdef RUN_HW_TEST
 #include <RadioLib.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
-#include <cstdio>
-#include <cstring>
-#include <cstdlib>
 
 #include "EspHal.hpp"
 #include "LoRaProtocol.hpp"
 #include "Ssd1306.hpp"
-
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
@@ -35,7 +35,8 @@ static int testCaseCount = 0;
 
 void updateOled(const std::string &status, const std::string &extra = "")
 {
-  if (oledErr != ESP_OK) return;
+  if (oledErr != ESP_OK)
+    return;
   oled.clear();
   oled.print(0, 0, " LMP HW TEST  ");
   oled.print(2, 0, ("Case: " + std::to_string(testCaseCount)).c_str());
@@ -53,7 +54,7 @@ extern "C" void app_main(void)
   // Initialize Vext Power
   gpio_reset_pin(HELTEC_POWER_CTRL);
   gpio_set_direction(HELTEC_POWER_CTRL, GPIO_MODE_OUTPUT);
-  gpio_set_level(HELTEC_POWER_CTRL, 0); // Active LOW
+  gpio_set_level(HELTEC_POWER_CTRL, 0);  // Active LOW
   vTaskDelay(pdMS_TO_TICKS(100));
 
   // Initialize OLED Display
@@ -67,7 +68,8 @@ extern "C" void app_main(void)
   {
     ESP_LOGE(TAG, "Radio Init Failed: %d", state);
     updateOled("Radio FAIL!");
-    while (1) vTaskDelay(1000);
+    while (1)
+      vTaskDelay(1000);
   }
 
   // Radio Configurations
@@ -75,13 +77,12 @@ extern "C" void app_main(void)
   radio.setBandwidth(500.0);
   radio.setCodingRate(5);
   radio.setSyncWord(0x12);
-  radio.setOutputPower(15); // moderate power for indoor testing
+  radio.setOutputPower(15);  // moderate power for indoor testing
   radio.setPreambleLength(8);
 
   // Initialize protocol stack
-  protocol->setYieldCallback([]() {
-    vTaskDelay(1);
-  });
+  protocol->setYieldCallback([]()
+                             { vTaskDelay(1); });
   protocol->setVerbose(true);
 
   // Get Node Name
@@ -92,12 +93,14 @@ extern "C" void app_main(void)
   ESP_LOGI(TAG, "My Node Name: %s", nodeName);
 
 #ifdef NODE_MODE_RX
-  ESP_LOGI(TAG, "Running in RECEIVER Mode.");
-  updateOled("RX Mode", "Waiting Msg...");
+  ESP_LOGI(TAG, "Running in RECEIVER Mode (Node Addr: 0x02).");
+  protocol->setNodeAddress(0x02);
+  updateOled("RX Mode 0x02", "Waiting Msg...");
 
   // Set drop packet callback to simulate loss
   // Stateful drop callback to simulate loss: drop chunk indices 1 and 2 ONLY ONCE per message ID.
-  protocol->setDropPacketCallback([](const Packet &packet) -> bool {
+  protocol->setDropPacketCallback([](const Packet &packet) -> bool
+                                  {
     if (packet.header.flags & FLAG_ACK)
     {
       return false; 
@@ -127,10 +130,32 @@ extern "C" void app_main(void)
         return true; 
       }
     }
-    return false; 
-  });
+    return false; });
 
-  protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr) {
+  static int rxConnCount = 0;
+  protocol->setOnConnectionRequestCallback([](SynMetadata &syn) -> bool
+                                           {
+    rxConnCount++;
+    if (rxConnCount == 2)
+    {
+      ESP_LOGW(TAG, "[TEST SCENARIO 2] Simulating RX Memory Full / BUSY Rejection! Sending CONN_NACK...");
+      updateOled("RX NACK SIM", "Mem Full");
+      return false; // Reject connection!
+    }
+    else if (rxConnCount == 3)
+    {
+      ESP_LOGW(TAG, "[TEST SCENARIO 3] Simulating RX Memory Constraint! Clamping chunk size from %uB to 80B.",
+               (unsigned)syn.requestedPayloadSize);
+      syn.requestedPayloadSize = 80; // Restrict receiver buffer to 80B
+      updateOled("RX CLAMP SIM", "Max: 80B");
+      return true;
+    }
+    ESP_LOGI(TAG, "[TEST SCENARIO %d] Accepting connection with requested params.", rxConnCount);
+    updateOled("RX CONN ACC", "Normal");
+    return true; });
+
+  protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr)
+                                 {
     std::string txt(payload.begin(), payload.end());
     lastRxMsg = txt;
     hasReceivedAnyPacket = true;
@@ -138,8 +163,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "SUCCESS: >>> MESSAGE RECONSTRUCTED & DELIVERED! (Size: %u)", (unsigned)payload.size());
     ESP_LOGI(TAG, "Content: %s", txt.substr(0, 80).c_str());
     ESP_LOGI(TAG, "Metrics: RSSI=%.1f dBm, SNR=%.1f dB", rssi, snr);
-    updateOled("SUCCESS RX", "Len: " + std::to_string(payload.size()));
-  });
+    updateOled("SUCCESS RX", "Len: " + std::to_string(payload.size())); });
 
   // Start receive
   radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
@@ -152,28 +176,30 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 
-#else // NODE_MODE_TX
-  ESP_LOGI(TAG, "Running in TRANSMITTER Mode.");
-  updateOled("TX Mode", "Ready...");
-  vTaskDelay(pdMS_TO_TICKS(3000)); // wait for receiver to settle
+#else  // NODE_MODE_TX
+  ESP_LOGI(TAG, "Running in TRANSMITTER Mode (Node Addr: 0x01). Target RX Addr: 0x02.");
+  protocol->setNodeAddress(0x01);
+  updateOled("TX Mode 0x01", "Ready...");
+  vTaskDelay(pdMS_TO_TICKS(3000));  // wait for receiver to settle
 
   while (true)
   {
     testCaseCount++;
     // Generate test data: exactly 800 bytes (splits into 4 chunks: 3 full of 246 + 1 partial of 62)
     std::string testMsg = "START_RELIABLE_TEST_MSG_ID_" + std::to_string(testCaseCount) + "|";
-    while (testMsg.size() < 780) {
+    while (testMsg.size() < 780)
+    {
       testMsg += "ABCDEF ";
     }
     testMsg += "|END_MSG";
     std::vector<uint8_t> txData(testMsg.begin(), testMsg.end());
 
     ESP_LOGI(TAG, "--------------------------------------------------------");
-    ESP_LOGI(TAG, "TEST CASE %d: Initiating 3-Way Handshake (connect)...", testCaseCount);
+    ESP_LOGI(TAG, "TEST CASE %d: Initiating 3-Way Handshake (connect to 0x02)...", testCaseCount);
     updateOled("TX CASE " + std::to_string(testCaseCount), "Connecting...");
 
     uint64_t startTime = hal->millis();
-    bool connSuccess = protocol->connect(5000);
+    bool connSuccess = protocol->connect(0x02, 5000);
     if (!connSuccess)
     {
       ESP_LOGE(TAG, "TEST CASE %d RESULT: 3-WAY HANDSHAKE FAILED!", testCaseCount);
@@ -182,8 +208,8 @@ extern "C" void app_main(void)
       continue;
     }
 
-    ESP_LOGI(TAG, "3-WAY HANDSHAKE ESTABLISHED! Sending %u bytes payload RELIABLY...", (unsigned)txData.size());
-    bool sendSuccess = protocol->send(txData, true); // reliable = true
+    ESP_LOGI(TAG, "3-WAY HANDSHAKE ESTABLISHED! Sending %u bytes payload RELIABLY to 0x02...", (unsigned)txData.size());
+    bool sendSuccess = protocol->send(0x02, txData, true);  // reliable = true
     uint64_t elapsed = hal->millis() - startTime;
 
     if (sendSuccess)
@@ -198,7 +224,7 @@ extern "C" void app_main(void)
     }
 
     ESP_LOGI(TAG, "--------------------------------------------------------");
-    
+
     // Wait 8 seconds before next test case
     vTaskDelay(pdMS_TO_TICKS(8000));
   }
@@ -207,4 +233,4 @@ extern "C" void app_main(void)
 }
 #endif
 
-#endif // RUN_PAPER_TEST
+#endif  // RUN_PAPER_TEST

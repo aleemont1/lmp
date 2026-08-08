@@ -30,15 +30,21 @@ class PacketSerializer
    * * @param data Pointer to the source data.
    * @param length Length of the source data in bytes.
    * @param packetNumberStart The Message ID to assign to these packets (default: 1).
+   * @param srcAddr Source node ID (default: ADDRESS_UNASSIGNED).
+   * @param dstAddr Destination node ID (default: ADDRESS_BROADCAST).
    * @return std::vector<Packet> A list of ready-to-send packets.
    */
-  static std::vector<Packet> splitBufferToPackets(const uint8_t *data, size_t length, uint16_t packetNumberStart = 1);
+  static std::vector<Packet> splitBufferToPackets(const uint8_t *data, size_t length, uint16_t packetNumberStart = 1,
+                                                  uint8_t srcAddr = ADDRESS_UNASSIGNED, uint8_t dstAddr = ADDRESS_BROADCAST);
 
   /**
    * @brief Convenience overload for std::vector input.
    * * @param data The source data vector.
    * @param packetNumberStart The Message ID to assign to these packets (default: 1).
+   * @param srcAddr Source node ID (default: ADDRESS_UNASSIGNED).
+   * @param dstAddr Destination node ID (default: ADDRESS_BROADCAST).
    * @return std::vector<Packet> A list of ready-to-send packets.
    */
-  static std::vector<Packet> splitVectorToPackets(const std::vector<uint8_t> &data, uint16_t packetNumberStart = 1);
+  static std::vector<Packet> splitVectorToPackets(const std::vector<uint8_t> &data, uint16_t packetNumberStart = 1,
+                                                  uint8_t srcAddr = ADDRESS_UNASSIGNED, uint8_t dstAddr = ADDRESS_BROADCAST);
 };
