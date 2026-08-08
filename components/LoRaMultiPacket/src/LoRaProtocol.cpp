@@ -564,9 +564,25 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     {
       stats_.synRcvd++;
 
-      // Failure Mode: Receiver BUSY in active session with another node
-      if (connection_.state != ConnectionState::CLOSED && connection_.peerAddr != senderAddr)
+      // Edge Case #4: Simultaneous SYN Collision Tie-Breaking
+      if (connection_.state == ConnectionState::SYN_SENT && connection_.peerAddr == senderAddr)
       {
+	if (nodeAddress_ < senderAddr)
+	{
+	  ESP_LOGW(TAG, "Simultaneous SYN collision: Node 0x%02X wins tie-break over 0x%02X. Replying BUSY.",
+	           (unsigned)nodeAddress_, (unsigned)senderAddr);
+	  sendConnNack(senderAddr, msgId, ConnNackReason::BUSY);
+	  return;
+	}
+	else
+	{
+	  ESP_LOGI(TAG, "Simultaneous SYN collision: Node 0x%02X recedes to 0x%02X. Accepting peer SYN.",
+	           (unsigned)nodeAddress_, (unsigned)senderAddr);
+	}
+      }
+      else if (connection_.state != ConnectionState::CLOSED && connection_.peerAddr != senderAddr)
+      {
+	// Failure Mode: Receiver BUSY in active session with another node
 	ESP_LOGW(TAG, "SYN rejected for MsgID %u from 0x%02X: Receiver BUSY with active session (Peer: 0x%02X)",
 	         msgId, (unsigned)senderAddr, (unsigned)connection_.peerAddr);
 	sendConnNack(senderAddr, msgId, ConnNackReason::BUSY);
@@ -643,7 +659,15 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     }
   }
 
-  if (connection_.state == ConnectionState::ESTABLISHED && connection_.sessionMsgId == msgId)
+  // Edge Case #3: Implicit Connection Promotion if final CONN_ACK was lost but peer started sending data
+  if (connection_.state == ConnectionState::SYN_RCVD && connection_.sessionMsgId == msgId && connection_.peerAddr == senderAddr)
+  {
+    ESP_LOGI(TAG, "Data frame received in SYN_RCVD state: Implicitly promoting connection to ESTABLISHED (MsgID %u).", msgId);
+    connection_.state = ConnectionState::ESTABLISHED;
+    connection_.lastActivityMs = currentTimestampMs;
+    stats_.connEstablished++;
+  }
+  else if (connection_.state == ConnectionState::ESTABLISHED && connection_.sessionMsgId == msgId)
   {
     connection_.lastActivityMs = currentTimestampMs;
   }
