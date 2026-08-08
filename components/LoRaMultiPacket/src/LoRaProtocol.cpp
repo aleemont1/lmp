@@ -37,6 +37,7 @@ bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
 
   connection_.state = ConnectionState::SYN_SENT;
   connection_.sessionMsgId = msgId;
+  connection_.peerAddr = targetAddress;
   stats_.synSent++;
 
   SynMetadata synReq{};
@@ -563,6 +564,15 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     {
       stats_.synRcvd++;
 
+      // Failure Mode: Receiver BUSY in active session with another node
+      if (connection_.state != ConnectionState::CLOSED && connection_.peerAddr != senderAddr)
+      {
+	ESP_LOGW(TAG, "SYN rejected for MsgID %u from 0x%02X: Receiver BUSY with active session (Peer: 0x%02X)",
+	         msgId, (unsigned)senderAddr, (unsigned)connection_.peerAddr);
+	sendConnNack(senderAddr, msgId, ConnNackReason::BUSY);
+	return;
+      }
+
       // Failure Mode: Protocol Version Mismatch
       if (packet.header.protocolVersion != LoRaMultiPacketConfig::PROTOCOL_VERSION)
       {
@@ -597,6 +607,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       {
 	connection_.state = ConnectionState::SYN_RCVD;
 	connection_.sessionMsgId = msgId;
+	connection_.peerAddr = senderAddr;
 	connection_.negotiatedPayloadSize = acceptedPayload;
 	connection_.windowSize = acceptedWindow;
 	connection_.lastActivityMs = currentTimestampMs;

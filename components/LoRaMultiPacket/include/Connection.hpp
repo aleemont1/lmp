@@ -65,6 +65,7 @@ struct ConnectionSession
 {
   ConnectionState state = ConnectionState::CLOSED;
   uint16_t sessionMsgId = 0;
+  uint8_t peerAddr = ADDRESS_UNASSIGNED;  ///< Peer node address for active session
   uint8_t negotiatedPayloadSize = LORA_MAX_PAYLOAD_SIZE;
   uint8_t windowSize = 1;
   uint32_t lastActivityMs = 0;

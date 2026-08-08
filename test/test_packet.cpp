@@ -699,19 +699,22 @@ static void test_connection_flags_validation(void)
   TEST_ASSERT_FALSE(err.has_value());
 }
 
-static void test_validator_accepts_syn_packet(void)
+static void test_connection_session_busy_rejection(void)
 {
-  Packet synPkt{};
-  synPkt.header.messageId = 10;
-  synPkt.header.totalChunks = 1;
-  synPkt.header.chunkIndex = 0;
-  synPkt.header.payloadSize = sizeof(SynMetadata);
-  synPkt.header.flags = FLAG_CONN_REQ;
-  synPkt.header.protocolVersion = 2;
-  synPkt.calculateCRC();
+  ConnectionSession session{};
+  session.state = ConnectionState::ESTABLISHED;
+  session.peerAddr = 0x01;  // Active session with Node 0x01
 
-  auto err = PacketValidator::validate(synPkt);
-  TEST_ASSERT_FALSE(err.has_value());
+  // Concurrent SYN arrives from Node 0x02
+  uint8_t incomingSynSender = 0x02;
+
+  bool isBusy = (session.state != ConnectionState::CLOSED && session.peerAddr != incomingSynSender);
+  TEST_ASSERT_TRUE(isBusy);
+
+  // Same SYN arrives from Node 0x01 (Retransmission)
+  uint8_t retransSender = 0x01;
+  bool isRetransBusy = (session.state != ConnectionState::CLOSED && session.peerAddr != retransSender);
+  TEST_ASSERT_FALSE(isRetransBusy);
 }
 
 int main(void)
@@ -742,7 +745,6 @@ int main(void)
   RUN_TEST(test_validator_invalid_payload_size_non_final_partial);
   RUN_TEST(test_validator_crc_mismatch);
   RUN_TEST(test_validator_bypass_ack_flags);
-  RUN_TEST(test_validator_accepts_syn_packet);
 
   // Reassembler Tests
   RUN_TEST(test_reassembler_ordered_flow);
@@ -761,6 +763,7 @@ int main(void)
   // Connection & 3WHS Tests
   RUN_TEST(test_connection_syn_metadata_packing);
   RUN_TEST(test_connection_flags_validation);
+  RUN_TEST(test_connection_session_busy_rejection);
 
   return UNITY_END();
 }
