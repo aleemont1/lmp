@@ -47,6 +47,34 @@ void updateOledDisplay(const std::string &header, const std::string &line1, cons
   oled.update();
 }
 
+// MAC/PHY HAL-Level CAD sensing helper function
+bool performCadSensing(SX1262 *radioPtr, EspHal *halPtr, int maxRetries = 5, uint32_t baseBackoffMs = 20)
+{
+  int attempts = 0;
+  while (attempts < maxRetries)
+  {
+    int cadState = radioPtr->scanChannel();
+    if (cadState == RADIOLIB_PREAMBLE_DETECTED)
+    {
+      uint32_t backoffMs = (rand() % (1 << attempts)) * baseBackoffMs + 10;
+      ESP_LOGW(TAG, "[MAC/PHY CAD] Active RF preamble detected! Backing off %ums (attempt %d/%d)",
+               (unsigned)backoffMs, attempts + 1, maxRetries);
+      halPtr->delay(backoffMs);
+      attempts++;
+    }
+    else
+    {
+      if (attempts > 0)
+      {
+	ESP_LOGI(TAG, "[MAC/PHY CAD] Channel clear after %d backoff attempts. Proceeding with TX.", attempts);
+      }
+      return true;
+    }
+  }
+  ESP_LOGW(TAG, "[MAC/PHY CAD] Channel busy after %d attempts. Transmitting anyway (best-effort).", maxRetries);
+  return false;
+}
+
 extern "C" void app_main(void)
 {
   ESP_LOGI(TAG, "=====================================================");
@@ -192,6 +220,9 @@ extern "C" void app_main(void)
 
     uint64_t startMs = hal->millis();
     bool testSuccess = false;
+
+    // MAC/PHY HAL CAD Sensing before transmission
+    performCadSensing(&radio, hal);
 
     if (testSpec.stateful)
     {
