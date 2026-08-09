@@ -759,52 +759,11 @@ void LoRaProtocol::setVerbose(bool enable)
   verbose_ = enable;
 }
 
-uint32_t LoRaProtocol::calculatePacingDelayMs(size_t packetLen) const
-{
-  if (!dutyCyclePacingEnabled_ || dutyCycleLimit_ <= 0.0f || !radio_)
-  {
-    return 0;
-  }
-  uint32_t toaMs = static_cast<uint32_t>(radio_->getTimeOnAir(packetLen) / 1000);
-  if (toaMs == 0)
-  {
-    toaMs = 1;
-  }
-  float multiplier = (1.0f - dutyCycleLimit_) / dutyCycleLimit_;
-  return static_cast<uint32_t>(toaMs * multiplier);
-}
-
 int LoRaProtocol::transmitPacket(const Packet &packet, const char *logPrefix)
 {
   if (yieldCallback_)
   {
     yieldCallback_();
-  }
-
-  // Channel Activity Detection (CAD) sensing before transmitting
-  if (cadEnabled_ && radio_)
-  {
-    int cadRetries = 0;
-    while (cadRetries < LoRaMultiPacketConfig::MAX_CAD_RETRIES)
-    {
-      int cadState = radio_->scanChannel();
-      if (cadState == RADIOLIB_PREAMBLE_DETECTED)
-      {
-	stats_.cadBackoffs++;
-	uint32_t backoffMs = (rand() % (1 << cadRetries)) * LoRaMultiPacketConfig::CAD_BACKOFF_BASE_MS + 10;
-	if (verbose_)
-	{
-	  ESP_LOGW(TAG, "CAD detected active preamble! Backing off %ums (attempt %d/%d)",
-	           (unsigned)backoffMs, cadRetries + 1, LoRaMultiPacketConfig::MAX_CAD_RETRIES);
-	}
-	hal_->delay(backoffMs);
-	cadRetries++;
-      }
-      else
-      {
-	break;
-      }
-    }
   }
 
   PacketSerializer::serialize(packet, phyBuffer_);
@@ -822,11 +781,7 @@ int LoRaProtocol::transmitPacket(const Packet &packet, const char *logPrefix)
   radio_->startReceive();
   if (state == RADIOLIB_ERR_NONE)
   {
-    uint32_t pacingMs = calculatePacingDelayMs(len);
-    uint32_t delayMs = (pacingMs > LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS)
-                           ? pacingMs
-                           : LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS;
-    hal_->delay(delayMs);
+    hal_->delay(LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS);
   }
   return state;
 }

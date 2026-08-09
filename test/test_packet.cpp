@@ -754,17 +754,6 @@ void test_large_payload_duty_cycle_compliance(void)
   TEST_ASSERT_TRUE(actualDutyCycle <= 0.010001f);
 }
 
-void test_cad_configuration_defaults(void)
-{
-  // CAD and duty-cycle pacing are opt-in MAC/PHY helpers, disabled by default.
-  // The transport protocol itself is agnostic to regulatory constraints.
-  TEST_ASSERT_FALSE(LoRaMultiPacketConfig::DEFAULT_CAD_ENABLED);
-  TEST_ASSERT_FALSE(LoRaMultiPacketConfig::DEFAULT_DUTY_CYCLE_PACING_ENABLED);
-  // Backoff parameters must be present and sensible when the feature is enabled
-  TEST_ASSERT_EQUAL_INT(5, LoRaMultiPacketConfig::MAX_CAD_RETRIES);
-  TEST_ASSERT_EQUAL_UINT32(20, LoRaMultiPacketConfig::CAD_BACKOFF_BASE_MS);
-}
-
 int main(void)
 {
   UNITY_BEGIN();
@@ -813,10 +802,9 @@ int main(void)
   RUN_TEST(test_connection_flags_validation);
   RUN_TEST(test_connection_session_busy_rejection);
 
-  // ETSI & CAD Tests
+  // ETSI Duty-Cycle Formula Verification
   RUN_TEST(test_etsi_duty_cycle_pacing_calculation);
   RUN_TEST(test_large_payload_duty_cycle_compliance);
-  RUN_TEST(test_cad_configuration_defaults);
 
   return UNITY_END();
 }

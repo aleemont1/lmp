@@ -34,28 +34,6 @@ constexpr size_t MAX_COMPLETED_HISTORY = 16;
 constexpr double ACK_TIMEOUT_SAFETY_FACTOR = 1.5;
 constexpr uint32_t ACK_TIMEOUT_GUARD_MS = 25;
 
-// ---------------------------------------------------------------------------
-// Optional MAC/PHY Compliance Helpers
-// ---------------------------------------------------------------------------
-// These features operate BELOW the LAMP transport layer and are therefore
-// DISABLED by default.  Regulatory compliance (ETSI EN 300 220, FCC Part 15,
-// etc.) is the responsibility of the MAC/PHY layer or the integrating
-// application, not of the transport protocol itself.
-//
-// Enable them in your application via:
-//   protocol.setDutyCyclePacing(true, 0.01f);  // 1% sub-band
-//   protocol.setCadEnabled(true);
-// ---------------------------------------------------------------------------
-
-// Duty-Cycle Pacing (opt-in, disabled by default)
-constexpr float DEFAULT_DUTY_CYCLE_LIMIT = 0.01f;  // reference limit when enabled
-constexpr bool DEFAULT_DUTY_CYCLE_PACING_ENABLED = false;
-
-// Channel Activity Detection / LBT (opt-in, disabled by default)
-constexpr bool DEFAULT_CAD_ENABLED = false;
-constexpr int MAX_CAD_RETRIES = 5;
-constexpr uint32_t CAD_BACKOFF_BASE_MS = 20;
-
 // Buffer Sizes
 constexpr size_t PHY_BUFFER_SIZE = 256;
 }  // namespace LoRaMultiPacketConfig

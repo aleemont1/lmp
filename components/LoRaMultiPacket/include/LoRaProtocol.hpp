@@ -98,18 +98,6 @@ class LoRaProtocol
 
   void setVerbose(bool enable);
 
-  void setDutyCyclePacing(bool enable, float limit = LoRaMultiPacketConfig::DEFAULT_DUTY_CYCLE_LIMIT)
-  {
-    dutyCyclePacingEnabled_ = enable;
-    dutyCycleLimit_ = limit;
-  }
-  bool isDutyCyclePacingEnabled() const { return dutyCyclePacingEnabled_; }
-  float getDutyCycleLimit() const { return dutyCycleLimit_; }
-  uint32_t calculatePacingDelayMs(size_t packetLen) const;
-
-  void setCadEnabled(bool enable) { cadEnabled_ = enable; }
-  bool isCadEnabled() const { return cadEnabled_; }
-
   struct ProtocolStats
   {
     uint32_t chunksTx = 0;
@@ -123,7 +111,6 @@ class LoRaProtocol
     uint32_t synRcvd = 0;
     uint32_t connEstablished = 0;
     uint32_t connNacked = 0;
-    uint32_t cadBackoffs = 0;
   };
 
   const ProtocolStats &getStats() const { return stats_; }
@@ -142,9 +129,6 @@ class LoRaProtocol
   DropPacketCallback dropPacketCallback_;
   ProtocolStats stats_;
   bool verbose_;
-  bool dutyCyclePacingEnabled_{LoRaMultiPacketConfig::DEFAULT_DUTY_CYCLE_PACING_ENABLED};
-  float dutyCycleLimit_{LoRaMultiPacketConfig::DEFAULT_DUTY_CYCLE_LIMIT};
-  bool cadEnabled_{LoRaMultiPacketConfig::DEFAULT_CAD_ENABLED};
   uint16_t nextMessageId_;
   uint8_t phyBuffer_[LoRaMultiPacketConfig::PHY_BUFFER_SIZE];  ///< Shared buffer for hardware I/O
 
