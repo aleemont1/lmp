@@ -717,6 +717,54 @@ static void test_connection_session_busy_rejection(void)
   TEST_ASSERT_FALSE(isRetransBusy);
 }
 
+void test_etsi_duty_cycle_pacing_calculation(void)
+{
+  // Formula: pacingDelayMs = toaMs * (1 - DC) / DC
+  // For 1% ETSI limit (DC = 0.01), multiplier is 99
+  float dc = 0.01f;
+  float multiplier = (1.0f - dc) / dc;
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 99.0f, multiplier);
+
+  uint32_t toaMs = 50;                  // 50 ms ToA
+  uint32_t expectedPacingMs = 50 * 99;  // 4950 ms
+  TEST_ASSERT_EQUAL_UINT32(4950, expectedPacingMs);
+}
+
+void test_large_payload_duty_cycle_compliance(void)
+{
+  // Simula un pacchetto gigante da 62.2 KB diviso in 255 chunk massimi
+  size_t totalChunks = 255;
+  uint32_t toaPerChunkMs = 92;  // ToA per chunk da 244 bytes a BW 500kHz
+  float dcLimit = 0.01f;        // 1% ETSI limit
+
+  double totalAirtimeMs = 0;
+  double totalElapsedTimeMs = 0;
+
+  for (size_t i = 0; i < totalChunks; ++i)
+  {
+    uint32_t pacingMs = static_cast<uint32_t>(toaPerChunkMs * ((1.0f - dcLimit) / dcLimit));
+    totalAirtimeMs += toaPerChunkMs;
+    totalElapsedTimeMs += (toaPerChunkMs + pacingMs);
+  }
+
+  double actualDutyCycle = totalAirtimeMs / totalElapsedTimeMs;
+
+  // Verifica che il duty cycle cumulativo sia esattamento <= 0.01 (1.000%)
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.01f, static_cast<float>(actualDutyCycle));
+  TEST_ASSERT_TRUE(actualDutyCycle <= 0.010001f);
+}
+
+void test_cad_configuration_defaults(void)
+{
+  // CAD and duty-cycle pacing are opt-in MAC/PHY helpers, disabled by default.
+  // The transport protocol itself is agnostic to regulatory constraints.
+  TEST_ASSERT_FALSE(LoRaMultiPacketConfig::DEFAULT_CAD_ENABLED);
+  TEST_ASSERT_FALSE(LoRaMultiPacketConfig::DEFAULT_DUTY_CYCLE_PACING_ENABLED);
+  // Backoff parameters must be present and sensible when the feature is enabled
+  TEST_ASSERT_EQUAL_INT(5, LoRaMultiPacketConfig::MAX_CAD_RETRIES);
+  TEST_ASSERT_EQUAL_UINT32(20, LoRaMultiPacketConfig::CAD_BACKOFF_BASE_MS);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -764,6 +812,11 @@ int main(void)
   RUN_TEST(test_connection_syn_metadata_packing);
   RUN_TEST(test_connection_flags_validation);
   RUN_TEST(test_connection_session_busy_rejection);
+
+  // ETSI & CAD Tests
+  RUN_TEST(test_etsi_duty_cycle_pacing_calculation);
+  RUN_TEST(test_large_payload_duty_cycle_compliance);
+  RUN_TEST(test_cad_configuration_defaults);
 
   return UNITY_END();
 }

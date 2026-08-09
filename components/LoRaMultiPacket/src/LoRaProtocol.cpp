@@ -69,7 +69,6 @@ bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
   ackPacket.calculateCRC();
 
   transmitPacket(ackPacket, "CONN ACK PACKET");
-  radio_->startReceive();
 
   connection_.state = ConnectionState::ESTABLISHED;
   connection_.negotiatedPayloadSize = synAckResp.acceptedPayloadSize;
@@ -105,7 +104,6 @@ void LoRaProtocol::sendSyn(uint8_t targetAddr, uint16_t msgId, const SynMetadata
   p.calculateCRC();
 
   transmitPacket(p, "SYN PACKET");
-  radio_->startReceive();
 }
 
 void LoRaProtocol::sendSynAck(uint8_t targetAddr, uint16_t msgId, const SynAckMetadata &synAck)
@@ -124,7 +122,6 @@ void LoRaProtocol::sendSynAck(uint8_t targetAddr, uint16_t msgId, const SynAckMe
 
   hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
   transmitPacket(p, "SYN-ACK PACKET");
-  radio_->startReceive();
 }
 
 void LoRaProtocol::sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReason reason)
@@ -143,7 +140,6 @@ void LoRaProtocol::sendConnNack(uint8_t targetAddr, uint16_t msgId, ConnNackReas
 
   hal_->delay(LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS);
   transmitPacket(p, "CONN-NACK PACKET");
-  radio_->startReceive();
 }
 
 bool LoRaProtocol::waitForSynAck(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, SynAckMetadata &synAckOut)
@@ -287,8 +283,6 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
     yieldCallback_();
   }
 
-  radio_->startReceive();
-
   int retries = 0;
 
   while (true)
@@ -348,6 +342,7 @@ uint32_t LoRaProtocol::calculateAckTimeoutMs(size_t totalChunks) const
 
   uint32_t timeoutMs = static_cast<uint32_t>(
       LoRaMultiPacketConfig::ACK_TIMEOUT_SAFETY_FACTOR * (toaDataMs * totalChunks + toaSackMs) +
+      LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS +
       LoRaMultiPacketConfig::ACK_TIMEOUT_GUARD_MS);
   return (timeoutMs < LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS)
              ? LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS
@@ -472,9 +467,14 @@ std::optional<Packet> LoRaProtocol::tryReceivePacket()
   }
 
   uint32_t irqFlags = radio_->getIrqFlags();
+  if (verbose_)
+  {
+    ESP_LOGI(TAG, "IRQ Pin HIGH detected! IrqFlags = 0x%04X", (unsigned)irqFlags);
+  }
 
   if (irqFlags & RADIOLIB_SX126X_IRQ_RX_DONE)
   {
+    radio_->clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
     size_t len = radio_->getPacketLength();
     if (len > 0)
     {
@@ -502,14 +502,12 @@ std::optional<Packet> LoRaProtocol::tryReceivePacket()
     else
     {
       ESP_LOGW(TAG, "Ghost Packet detected (len=0), clearing IRQ.");
-      radio_->clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
     }
     radio_->startReceive();
   }
-  else if (irqFlags & (RADIOLIB_SX126X_IRQ_CRC_ERR | RADIOLIB_SX126X_IRQ_HEADER_ERR | RADIOLIB_SX126X_IRQ_TIMEOUT))
+  else
   {
-    ESP_LOGW(TAG, "RX Error detected (IRQ: 0x%04X). Restarting RX.", (unsigned)irqFlags);
-    stats_.packetsFailed++;
+    // Clear residual non-RX IRQ flags (e.g. TX_DONE) so DIO1 pin goes LOW
     radio_->clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
     radio_->startReceive();
   }
@@ -761,11 +759,52 @@ void LoRaProtocol::setVerbose(bool enable)
   verbose_ = enable;
 }
 
+uint32_t LoRaProtocol::calculatePacingDelayMs(size_t packetLen) const
+{
+  if (!dutyCyclePacingEnabled_ || dutyCycleLimit_ <= 0.0f || !radio_)
+  {
+    return 0;
+  }
+  uint32_t toaMs = static_cast<uint32_t>(radio_->getTimeOnAir(packetLen) / 1000);
+  if (toaMs == 0)
+  {
+    toaMs = 1;
+  }
+  float multiplier = (1.0f - dutyCycleLimit_) / dutyCycleLimit_;
+  return static_cast<uint32_t>(toaMs * multiplier);
+}
+
 int LoRaProtocol::transmitPacket(const Packet &packet, const char *logPrefix)
 {
   if (yieldCallback_)
   {
     yieldCallback_();
+  }
+
+  // Channel Activity Detection (CAD) sensing before transmitting
+  if (cadEnabled_ && radio_)
+  {
+    int cadRetries = 0;
+    while (cadRetries < LoRaMultiPacketConfig::MAX_CAD_RETRIES)
+    {
+      int cadState = radio_->scanChannel();
+      if (cadState == RADIOLIB_PREAMBLE_DETECTED)
+      {
+	stats_.cadBackoffs++;
+	uint32_t backoffMs = (rand() % (1 << cadRetries)) * LoRaMultiPacketConfig::CAD_BACKOFF_BASE_MS + 10;
+	if (verbose_)
+	{
+	  ESP_LOGW(TAG, "CAD detected active preamble! Backing off %ums (attempt %d/%d)",
+	           (unsigned)backoffMs, cadRetries + 1, LoRaMultiPacketConfig::MAX_CAD_RETRIES);
+	}
+	hal_->delay(backoffMs);
+	cadRetries++;
+      }
+      else
+      {
+	break;
+      }
+    }
   }
 
   PacketSerializer::serialize(packet, phyBuffer_);
@@ -779,9 +818,15 @@ int LoRaProtocol::transmitPacket(const Packet &packet, const char *logPrefix)
   }
 
   int state = radio_->transmit(phyBuffer_, len);
+  radio_->clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
+  radio_->startReceive();
   if (state == RADIOLIB_ERR_NONE)
   {
-    hal_->delay(LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS);
+    uint32_t pacingMs = calculatePacingDelayMs(len);
+    uint32_t delayMs = (pacingMs > LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS)
+                           ? pacingMs
+                           : LoRaMultiPacketConfig::POST_TX_GUARD_DELAY_MS;
+    hal_->delay(delayMs);
   }
   return state;
 }
