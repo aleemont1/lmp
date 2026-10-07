@@ -12,6 +12,7 @@ Compare with the simulator: python3 run_campaign_ns3.py C  ->  data/ns3_campaign
 import argparse
 import csv
 import os
+import threading
 import time
 
 import serial
@@ -22,30 +23,47 @@ FIELDS = ["sf", "mode", "lossPct", "trial", "txOk", "durationMs", "chunksTx", "r
           "rxRssiDbm", "rxSnrDb"]
 
 
-def wait_for(port, prefix, timeout):
-    end = time.time() + timeout
-    while time.time() < end:
-        line = port.readline().decode(errors="replace").strip()
-        if line.startswith(prefix):
-            return line
-    raise TimeoutError(f"no '{prefix}' line within {timeout}s")
+class Port:
+    """Serial port read by a background thread, so long trials cannot overflow the OS buffer."""
 
+    def __init__(self, path):
+        self.s = serial.Serial(path, 115200, timeout=0.2)
+        self.lines = []
+        self.lock = threading.Lock()
+        threading.Thread(target=self._run, daemon=True).start()
 
-def reset(port):
-    """Pulse EN (RTS) with GPIO0 high (DTR low) so the board reboots into the application and prints READY."""
-    port.dtr, port.rts = False, True
-    time.sleep(0.1)
-    port.rts = False
+    def _run(self):
+        while True:
+            line = self.s.readline().decode(errors="replace").strip()
+            if line:
+                with self.lock:
+                    self.lines.append(line)
 
+    def write(self, text):
+        self.s.write(text.encode())
 
-def drain(port, seconds):
-    """Collect every line for `seconds` (the receiver keeps printing while retransmissions arrive)."""
-    lines, end = [], time.time() + seconds
-    while time.time() < end:
-        line = port.readline().decode(errors="replace").strip()
-        if line:
-            lines.append(line)
-    return lines
+    def mark(self):
+        with self.lock:
+            return len(self.lines)
+
+    def since(self, mark):
+        with self.lock:
+            return list(self.lines[mark:])
+
+    def wait_for(self, prefix, timeout, mark=0):
+        end = time.time() + timeout
+        while time.time() < end:
+            for line in self.since(mark):
+                if line.startswith(prefix):
+                    return line
+            time.sleep(0.05)
+        raise TimeoutError(f"no '{prefix}' line within {timeout}s")
+
+    def reset(self):
+        """Pulse EN (RTS) with GPIO0 high (DTR low) so the board reboots into the application and prints READY."""
+        self.s.dtr, self.s.rts = False, True
+        time.sleep(0.1)
+        self.s.rts = False
 
 
 def summarise_rx(lines):
@@ -84,37 +102,46 @@ def main():
     new_file = not os.path.exists(args.out)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
-    rx = serial.Serial(args.rx, 115200, timeout=0.5)
-    tx = serial.Serial(args.tx, 115200, timeout=0.5)
-    reset(rx)
-    reset(tx)
-    wait_for(rx, "READY,RX", 20)
-    wait_for(tx, "READY,TX", 20)
+    rx, tx = Port(args.rx), Port(args.tx)
+    rx.reset()
+    tx.reset()
+    rx.wait_for("READY,RX", 20)
+    tx.wait_for("READY,TX", 20)
 
+    total = len(args.sf) * len(args.modes) * len(args.loss) * args.trials
+    count = 0
     with open(args.out, "a", newline="") as out:
         w = csv.DictWriter(out, FIELDS)
         if new_file:
             w.writeheader()
         for sf in args.sf:
             for port in (rx, tx):
-                port.write(f"SF {sf}\n".encode())
-                wait_for(port, "OK,SF", 5)
+                m = port.mark()
+                port.write(f"SF {sf}\n")
+                port.wait_for("OK,SF", 5, m)
             for mode in args.modes:
                 for loss in args.loss:
-                    rx.write(f"DROP {loss}\n".encode())
-                    wait_for(rx, "OK,DROP", 5)
+                    m = rx.mark()
+                    rx.write(f"DROP {loss}\n")
+                    rx.wait_for("OK,DROP", 5, m)
                     for trial in range(1, args.trials + 1):
+                        count += 1
                         if (str(sf), str(mode), str(loss), str(trial)) in done:
                             continue
-                        rx.reset_input_buffer()
-                        tx.write(f"TRIAL {mode} {args.chunks}\n".encode())
-                        t = wait_for(tx, "TX,", 900).split(",")
-                        unique, complete, rssi, snr = summarise_rx(drain(rx, 3.0))
+                        note = f"M{mode} L{loss}% t{trial}/{args.trials}"
+                        for port in (rx, tx):  # shown on the OLEDs: sweep position
+                            port.write(f"NOTE {note}\n")
+                        time.sleep(0.2)
+                        mr, mt = rx.mark(), tx.mark()
+                        tx.write(f"TRIAL {mode} {args.chunks}\n")
+                        t = tx.wait_for("TX,", 900, mt).split(",")
+                        time.sleep(3.0)  # let the receiver finish printing
+                        unique, complete, rssi, snr = summarise_rx(rx.since(mr))
                         row = dict(sf=sf, mode=mode, lossPct=loss, trial=trial, txOk=t[4], durationMs=t[5],
                                    chunksTx=t[6], rxUnique=unique, rxComplete=complete, rxRssiDbm=rssi, rxSnrDb=snr)
                         w.writerow(row)
                         out.flush()
-                        print(row, flush=True)
+                        print(f"[{count}/{total}]", row, flush=True)
 
 
 if __name__ == "__main__":

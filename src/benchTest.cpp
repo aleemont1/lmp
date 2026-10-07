@@ -7,6 +7,7 @@
 #ifdef RUN_BENCH
 #include <RadioLib.h>
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -15,6 +16,7 @@
 
 #include "EspHal.hpp"
 #include "LoRaProtocol.hpp"
+#include "Ssd1306.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
@@ -34,6 +36,70 @@ static const uint8_t ADDR_RX = 0x02;
 static const int MAX_CONNECT_ATTEMPTS = 1 + LoRaMultiPacketConfig::MAX_RETRIES;  // simulator: SYN + R_max resends
 static int dropPercent = 0;
 static int currentSf = 7;
+
+// ---- OLED status (updated by a low-priority task on core 1; never touches the protocol timing) ----
+static Ssd1306 oled;
+static bool oledOk = false;
+static char note[17] = "";  // free text sent by the host ("NOTE ...")
+// RX counters
+static volatile uint32_t cFrames = 0, cDropped = 0, cMsgs = 0;
+static volatile float lastRssi = 0, lastSnr = 0;
+// TX state
+static volatile int txMode = 0, txTrial = 0, txDone = 0, txFail = 0;
+static volatile bool txRunning = false, txLastOk = false;
+static volatile uint32_t txStartMs = 0, txLastDurMs = 0, txLastChunks = 0;
+
+static void oledLine(int row, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static void oledLine(int row, const char *fmt, ...)
+{
+  char buf[24];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  buf[16] = '\0';  // 16 columns
+  oled.print(row, 0, buf);
+}
+
+static void oledTask(void *)
+{
+  while (true)
+  {
+    oled.clear();
+#ifdef NODE_MODE_RX
+    oledLine(0, "LAMP BENCH  RX");
+    oledLine(1, "SF%d BW125 10dBm", currentSf);
+    oledLine(2, "drop: %d%%", dropPercent);
+    oledLine(3, "frames: %lu", (unsigned long)cFrames);
+    oledLine(4, "dropped: %lu", (unsigned long)cDropped);
+    oledLine(5, "msgs ok: %lu", (unsigned long)cMsgs);
+    oledLine(6, "R%.0f S%.1f", lastRssi, lastSnr);
+#else
+    oledLine(0, "LAMP BENCH  TX");
+    oledLine(1, "SF%d BW125 10dBm", currentSf);
+    if (txRunning)
+    {
+      oledLine(2, "Mode %d  #%d", txMode, txTrial);
+      oledLine(3, "RUNNING %lus", (unsigned long)((hal->millis() - txStartMs) / 1000));
+    }
+    else if (txTrial > 0)
+    {
+      oledLine(2, "Mode %d  #%d", txMode, txTrial);
+      oledLine(3, "%s", txLastOk ? "DONE ok" : "DONE FAIL");
+      oledLine(4, "%lums", (unsigned long)txLastDurMs);
+      oledLine(5, "chunks tx: %lu", (unsigned long)txLastChunks);
+    }
+    else
+    {
+      oledLine(2, "waiting host...");
+    }
+    oledLine(6, "ok:%d fail:%d", txDone, txFail);
+#endif
+    oledLine(7, "%s", note);
+    oled.update();
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+}
 
 static bool readLine(std::string &line)
 {
@@ -75,6 +141,10 @@ extern "C" void app_main(void)
   gpio_set_level(HELTEC_POWER_CTRL, 0);
   vTaskDelay(pdMS_TO_TICKS(100));
 
+  oledOk = (oled.init() == ESP_OK);
+  if (oledOk)
+    xTaskCreatePinnedToCore(oledTask, "oled", 4096, nullptr, 1, nullptr, 1);
+
   hal->init();
   int state = radio.begin(869.525);
   if (state != RADIOLIB_ERR_NONE)
@@ -102,12 +172,18 @@ extern "C" void app_main(void)
     bool drop = false;
     if (!(packet.header.flags & FLAG_ACK) && dropPercent > 0)
       drop = static_cast<int>(esp_random() % 100) < dropPercent;
+    cFrames = cFrames + 1;
+    if (drop)
+      cDropped = cDropped + 1;
+    lastRssi = radio.getRSSI();
+    lastSnr = radio.getSNR();
     printf("RXF,%u,%u,%u,0x%02X,%d,%.1f,%.1f\n", (unsigned)packet.header.messageId, (unsigned)packet.header.chunkIndex,
            (unsigned)packet.header.totalChunks, (unsigned)packet.header.flags, drop ? 1 : 0, radio.getRSSI(), radio.getSNR());
     return drop; });
 
   protocol->setOnReceiveCallback([](const std::vector<uint8_t> &payload, float rssi, float snr)
-                                 { printf("RXMSG,%u,%.1f,%.1f,%lu\n", (unsigned)payload.size(), rssi, snr, (unsigned long)hal->millis()); });
+                                 { cMsgs = cMsgs + 1;
+                                   printf("RXMSG,%u,%.1f,%.1f,%lu\n", (unsigned)payload.size(), rssi, snr, (unsigned long)hal->millis()); });
 
   radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_ALL);
   radio.startReceive();
@@ -138,6 +214,10 @@ extern "C" void app_main(void)
 	dropPercent = v;
 	printf("OK,DROP,%d\n", v);
       }
+      else if (line.compare(0, 5, "NOTE ") == 0)
+      {
+	std::snprintf(note, sizeof(note), "%s", line.c_str() + 5);
+      }
       line.clear();
     }
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -167,9 +247,17 @@ extern "C" void app_main(void)
     {
       setSf(a);
     }
+    else if (line.compare(0, 5, "NOTE ") == 0)
+    {
+      std::snprintf(note, sizeof(note), "%s", line.c_str() + 5);
+    }
     else if (std::sscanf(line.c_str(), "TRIAL %d %d", &a, &b) == 2)
     {
       const int mode = a;
+      txMode = mode;
+      txTrial = txTrial + 1;
+      txStartMs = hal->millis();
+      txRunning = true;
       const bool stateful = (mode == 2 || mode == 4);
       const bool reliable = (mode == 3 || mode == 4);
       const auto before = protocol->getStats();
@@ -189,6 +277,14 @@ extern "C" void app_main(void)
 
       const uint32_t durMs = hal->millis() - startMs;
       const auto after = protocol->getStats();
+      txRunning = false;
+      txLastOk = ok;
+      txLastDurMs = durMs;
+      txLastChunks = after.chunksTx - before.chunksTx;
+      if (ok)
+	txDone = txDone + 1;
+      else
+	txFail = txFail + 1;
       printf("TX,%d,%d,%d,%d,%lu,%lu\n", currentSf, mode, b, ok ? 1 : 0, (unsigned long)durMs,
              (unsigned long)(after.chunksTx - before.chunksTx));
     }
