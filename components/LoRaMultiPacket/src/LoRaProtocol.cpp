@@ -305,11 +305,18 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
       }
 
       ESP_LOGI(TAG, "SACK received. Chunks missing: %u", (unsigned)missingIndices.size());
+      // One repair-round budget (R_max) is shared by ACK timeouts and SACK-with-gaps rounds.
+      if (retries >= LoRaMultiPacketConfig::MAX_RETRIES)
+      {
+	ESP_LOGE(TAG, "Reliable send failed: repair round budget exhausted.");
+	radio_->startReceive();
+	return false;
+      }
       if (!retransmitMissingChunks(packets, missingIndices))
       {
 	return false;
       }
-      retries = 0;
+      retries++;
       continue;
     }
 
