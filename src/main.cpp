@@ -1,5 +1,6 @@
 #ifndef RUN_PAPER_TEST
 #ifndef RUN_HW_TEST
+#ifndef RUN_BENCH
 #include <RadioLib.h>
 
 #include <cstdio>
@@ -315,5 +316,6 @@ void updateOledDisplay(uint32_t currentMs)
 #endif
   oled.update();
 }
+#endif
 #endif
 #endif  // RUN_PAPER_TEST
