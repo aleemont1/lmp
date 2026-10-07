@@ -140,7 +140,7 @@ extern "C" void app_main(void)
       }
       line.clear();
     }
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 
 #else  // NODE_MODE_TX
@@ -153,7 +153,7 @@ extern "C" void app_main(void)
     int c = getchar();
     if (c == EOF)
     {
-      vTaskDelay(pdMS_TO_TICKS(5));
+      vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
     if (c != '\n' && c != '\r')

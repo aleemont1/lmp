@@ -31,6 +31,13 @@ def wait_for(port, prefix, timeout):
     raise TimeoutError(f"no '{prefix}' line within {timeout}s")
 
 
+def reset(port):
+    """Pulse EN (RTS) with GPIO0 high (DTR low) so the board reboots into the application and prints READY."""
+    port.dtr, port.rts = False, True
+    time.sleep(0.1)
+    port.rts = False
+
+
 def drain(port, seconds):
     """Collect every line for `seconds` (the receiver keeps printing while retransmissions arrive)."""
     lines, end = [], time.time() + seconds
@@ -79,6 +86,8 @@ def main():
 
     rx = serial.Serial(args.rx, 115200, timeout=0.5)
     tx = serial.Serial(args.tx, 115200, timeout=0.5)
+    reset(rx)
+    reset(tx)
     wait_for(rx, "READY,RX", 20)
     wait_for(tx, "READY,TX", 20)
 
