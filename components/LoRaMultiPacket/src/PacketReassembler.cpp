@@ -6,18 +6,18 @@
 
 std::optional<std::vector<uint8_t>> PacketReassembler::processPacket(const Packet &packet, uint32_t currentTimestampMs)
 {
-  uint16_t msgId = packet.header.messageId;
+  uint32_t key = sessionKey(packet.header.srcAddr, packet.header.messageId);
   uint8_t chunkIdx = packet.header.chunkIndex;
   uint8_t total = packet.header.totalChunks;
 
-  auto it = sessions_.find(msgId);
+  auto it = sessions_.find(key);
   if (it == sessions_.end())
   {
     if (sessions_.size() >= MAX_CONCURRENT_MESSAGES)
     {
       return std::nullopt;
     }
-    it = sessions_.emplace(msgId, ReassemblySession(total, currentTimestampMs)).first;
+    it = sessions_.emplace(key, ReassemblySession(total, currentTimestampMs)).first;
   }
 
   ReassemblySession &session = it->second;
@@ -55,9 +55,9 @@ void PacketReassembler::reset()
   completedMessages_.clear();
 }
 
-bool PacketReassembler::getReceivedBitmap(uint16_t messageId, std::vector<uint8_t> &bitmapOut) const
+bool PacketReassembler::getReceivedBitmap(uint8_t srcAddr, uint16_t messageId, std::vector<uint8_t> &bitmapOut) const
 {
-  auto it = sessions_.find(messageId);
+  auto it = sessions_.find(sessionKey(srcAddr, messageId));
   if (it == sessions_.end())
   {
     return false;
@@ -77,14 +77,14 @@ bool PacketReassembler::getReceivedBitmap(uint16_t messageId, std::vector<uint8_
   return true;
 }
 
-bool PacketReassembler::isCompleted(uint16_t messageId) const
+bool PacketReassembler::isCompleted(uint8_t srcAddr, uint16_t messageId) const
 {
-  return std::find(completedMessages_.begin(), completedMessages_.end(), messageId) != completedMessages_.end();
+  return std::find(completedMessages_.begin(), completedMessages_.end(), sessionKey(srcAddr, messageId)) != completedMessages_.end();
 }
 
-void PacketReassembler::markCompleted(uint16_t messageId)
+void PacketReassembler::markCompleted(uint8_t srcAddr, uint16_t messageId)
 {
-  if (isCompleted(messageId))
+  if (isCompleted(srcAddr, messageId))
   {
     return;
   }
@@ -92,7 +92,7 @@ void PacketReassembler::markCompleted(uint16_t messageId)
   {
     completedMessages_.erase(completedMessages_.begin());
   }
-  completedMessages_.push_back(messageId);
+  completedMessages_.push_back(sessionKey(srcAddr, messageId));
 }
 
 std::vector<uint8_t> PacketReassembler::reconstruct(const ReassemblySession &session)

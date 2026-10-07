@@ -359,9 +359,10 @@ static void test_validator_crc_mismatch(void)
 /**
  * @brief Helper to generate a dummy packet for reassembly tests.
  */
-Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::string &content)
+Packet create_chunk(uint16_t msgId, uint8_t index, uint8_t total, const std::string &content, uint8_t srcAddr = 0)
 {
   Packet p{};
+  p.header.srcAddr = srcAddr;
   p.header.messageId = msgId;
   p.header.chunkIndex = index;
   p.header.totalChunks = total;
@@ -601,7 +602,7 @@ static void test_reassembler_get_received_bitmap(void)
   reassembler.processPacket(create_chunk(70, 9, 10, "J"), time);
 
   std::vector<uint8_t> bitmap;
-  bool found = reassembler.getReceivedBitmap(70, bitmap);
+  bool found = reassembler.getReceivedBitmap(0, 70, bitmap);
   TEST_ASSERT_TRUE(found);
   TEST_ASSERT_EQUAL_INT(2, bitmap.size());
   TEST_ASSERT_EQUAL_HEX8(0x9B, bitmap[0]);
@@ -613,7 +614,7 @@ static void test_reassembler_completed_messages(void)
   PacketReassembler reassembler;
   uint32_t time = 1000;
 
-  TEST_ASSERT_FALSE(reassembler.isCompleted(80));
+  TEST_ASSERT_FALSE(reassembler.isCompleted(0, 80));
 
   // Complete a session
   reassembler.processPacket(create_chunk(80, 0, 2, "A"), time);
@@ -621,12 +622,37 @@ static void test_reassembler_completed_messages(void)
   TEST_ASSERT_TRUE(res.has_value());
 
   // Mark it completed
-  reassembler.markCompleted(80);
-  TEST_ASSERT_TRUE(reassembler.isCompleted(80));
+  reassembler.markCompleted(0, 80);
+  TEST_ASSERT_TRUE(reassembler.isCompleted(0, 80));
 
   // Verify that it is cleared on reset
   reassembler.reset();
-  TEST_ASSERT_FALSE(reassembler.isCompleted(80));
+  TEST_ASSERT_FALSE(reassembler.isCompleted(0, 80));
+}
+
+/**
+ * @brief Two senders reusing the same message ID must not share a reassembly session.
+ */
+static void test_reassembler_same_msgid_different_senders(void)
+{
+  PacketReassembler reassembler;
+  uint32_t time = 1000;
+
+  reassembler.processPacket(create_chunk(5, 0, 2, "A", 0x01), time);
+  reassembler.processPacket(create_chunk(5, 1, 2, "Y", 0x02), time);
+
+  // Neither session is complete: each sender has delivered one chunk of two.
+  std::vector<uint8_t> bitmap;
+  TEST_ASSERT_TRUE(reassembler.getReceivedBitmap(0x01, 5, bitmap));
+  TEST_ASSERT_EQUAL_HEX8(0x01, bitmap[0]);
+  TEST_ASSERT_TRUE(reassembler.getReceivedBitmap(0x02, 5, bitmap));
+  TEST_ASSERT_EQUAL_HEX8(0x02, bitmap[0]);
+
+  auto res = reassembler.processPacket(create_chunk(5, 1, 2, "B", 0x01), time);
+  TEST_ASSERT_TRUE(res.has_value());
+  reassembler.markCompleted(0x01, 5);
+  TEST_ASSERT_TRUE(reassembler.isCompleted(0x01, 5));
+  TEST_ASSERT_FALSE(reassembler.isCompleted(0x02, 5));
 }
 
 static void test_sack_helper(void)
@@ -793,6 +819,7 @@ int main(void)
   RUN_TEST(test_reassembler_reset);
   RUN_TEST(test_reassembler_get_received_bitmap);
   RUN_TEST(test_reassembler_completed_messages);
+  RUN_TEST(test_reassembler_same_msgid_different_senders);
 
   // SackHelper Tests
   RUN_TEST(test_sack_helper);

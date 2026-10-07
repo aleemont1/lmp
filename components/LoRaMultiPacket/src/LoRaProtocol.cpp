@@ -43,7 +43,7 @@ bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
   SynMetadata synReq{};
   synReq.requestedPayloadSize = LORA_MAX_PAYLOAD_SIZE;
   synReq.windowSize = 1;
-  synReq.timeoutMs = static_cast<uint16_t>(timeoutMs);
+  synReq.timeoutMs = static_cast<uint16_t>(LoRaMultiPacketConfig::DEFAULT_CONN_INACTIVITY_TIMEOUT_MS);
 
   ESP_LOGI(TAG, "Initiating 3-Way Handshake (MsgID %u, SYN sent to 0x%02X)...", msgId, (unsigned)targetAddress);
   sendSyn(targetAddress, msgId, synReq);
@@ -73,6 +73,7 @@ bool LoRaProtocol::connect(uint8_t targetAddress, uint32_t timeoutMs)
   connection_.state = ConnectionState::ESTABLISHED;
   connection_.negotiatedPayloadSize = synAckResp.acceptedPayloadSize;
   connection_.windowSize = synAckResp.windowSize;
+  connection_.timeoutMs = synReq.timeoutMs;
   connection_.lastActivityMs = hal_->millis();
   stats_.connEstablished++;
 
@@ -290,6 +291,10 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
     std::vector<uint8_t> sackBitmap;
     if (waitForSack(targetAddr, msgId, ackTimeoutMs, sackBitmap))
     {
+      if (connection_.state == ConnectionState::ESTABLISHED && connection_.peerAddr == targetAddr)
+      {
+	connection_.lastActivityMs = hal_->millis();
+      }
       auto missingIndices = SackHelper::getMissingChunkIndices(sackBitmap, totalChunks);
       if (missingIndices.empty())
       {
@@ -309,7 +314,7 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
     }
 
     int maxRetries = LoRaMultiPacketConfig::MAX_RETRIES;
-    if (retries > maxRetries)
+    if (retries >= maxRetries)
     {
       ESP_LOGE(TAG, "Reliable send failed: Max retries exceeded.");
       radio_->startReceive();
@@ -330,6 +335,7 @@ bool LoRaProtocol::sendReliable(const std::vector<Packet> &packets)
       return false;
     }
     radio_->startReceive();
+    retries++;
   }
 }
 
@@ -646,7 +652,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
   }
   else if (packet.header.flags & FLAG_CONN_ACK)  // Final ACK of Handshake
   {
-    if (connection_.state == ConnectionState::SYN_RCVD && connection_.sessionMsgId == msgId)
+    if (connection_.state == ConnectionState::SYN_RCVD && connection_.sessionMsgId == msgId && connection_.peerAddr == senderAddr)
     {
       connection_.state = ConnectionState::ESTABLISHED;
       connection_.lastActivityMs = currentTimestampMs;
@@ -665,7 +671,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
     connection_.lastActivityMs = currentTimestampMs;
     stats_.connEstablished++;
   }
-  else if (connection_.state == ConnectionState::ESTABLISHED && connection_.sessionMsgId == msgId)
+  else if (connection_.state == ConnectionState::ESTABLISHED && connection_.sessionMsgId == msgId && connection_.peerAddr == senderAddr)
   {
     connection_.lastActivityMs = currentTimestampMs;
   }
@@ -676,7 +682,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
   }
   else
   {
-    bool isAlreadyCompleted = reassembler_.isCompleted(msgId);
+    bool isAlreadyCompleted = reassembler_.isCompleted(senderAddr, msgId);
     bool justCompleted = false;
 
     std::optional<std::vector<uint8_t>> payloadOpt;
@@ -686,7 +692,7 @@ void LoRaProtocol::handleIncomingPacket(const Packet &packet, uint32_t currentTi
       payloadOpt = reassembler_.processPacket(packet, currentTimestampMs);
       if (payloadOpt.has_value())
       {
-	reassembler_.markCompleted(msgId);
+	reassembler_.markCompleted(senderAddr, msgId);
 	stats_.packetsRx++;
 	justCompleted = true;
       }
@@ -715,7 +721,7 @@ void LoRaProtocol::sendSACK(uint8_t targetAddr, uint16_t messageId, uint8_t tota
   }
   else
   {
-    reassembler_.getReceivedBitmap(messageId, bitmap);
+    reassembler_.getReceivedBitmap(targetAddr, messageId, bitmap);
   }
 
   Packet ackPacket = SackHelper::createSackPacket(messageId, totalChunks, bitmap, nodeAddress_, targetAddr);

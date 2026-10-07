@@ -47,23 +47,24 @@ class PacketReassembler
   void reset();
 
   /**
-   * @brief Generates a bitmap of successfully received chunks for a given message ID.
+   * @brief Generates a bitmap of successfully received chunks for a given message.
    *
+   * @param srcAddr Sender address (sessions are keyed by sender and message ID).
    * @param messageId The message ID of the session.
    * @param bitmapOut Output vector to write the bitmap.
    * @return true if session was found, false otherwise.
    */
-  bool getReceivedBitmap(uint16_t messageId, std::vector<uint8_t> &bitmapOut) const;
+  bool getReceivedBitmap(uint8_t srcAddr, uint16_t messageId, std::vector<uint8_t> &bitmapOut) const;
 
   /**
-   * @brief Checks if a message ID was recently completed.
+   * @brief Checks if a message from a given sender was recently completed.
    */
-  bool isCompleted(uint16_t messageId) const;
+  bool isCompleted(uint8_t srcAddr, uint16_t messageId) const;
 
   /**
-   * @brief Marks a message ID as completed, adding it to the history.
+   * @brief Marks a message from a given sender as completed, adding it to the history.
    */
-  void markCompleted(uint16_t messageId);
+  void markCompleted(uint8_t srcAddr, uint16_t messageId);
 
  private:
   static constexpr size_t MAX_COMPLETED_HISTORY = LoRaMultiPacketConfig::MAX_COMPLETED_HISTORY;
@@ -85,8 +86,14 @@ class PacketReassembler
     }
   };
 
-  std::map<uint16_t, ReassemblySession> sessions_;
-  std::vector<uint16_t> completedMessages_;
+  /// Session key: sender address and message ID (message IDs are only unique per sender).
+  static uint32_t sessionKey(uint8_t srcAddr, uint16_t messageId)
+  {
+    return (static_cast<uint32_t>(srcAddr) << 16) | messageId;
+  }
+
+  std::map<uint32_t, ReassemblySession> sessions_;
+  std::vector<uint32_t> completedMessages_;
 
   static std::vector<uint8_t> reconstruct(const ReassemblySession &session);
 };
