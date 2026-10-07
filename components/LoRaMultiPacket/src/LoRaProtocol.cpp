@@ -354,8 +354,10 @@ uint32_t LoRaProtocol::calculateAckTimeoutMs(size_t totalChunks) const
   size_t sackLen = HEADER_SIZE + ((totalChunks + 7) / 8) + CRC_SIZE;
   uint32_t toaSackMs = radio_->getTimeOnAir(sackLen) / 1000;
 
+  // The timer starts after the burst has been sent, so it only has to cover one data frame, the turnaround
+  // and the SACK (Eq. timeout in the paper), not the airtime of the whole burst.
   uint32_t timeoutMs = static_cast<uint32_t>(
-      LoRaMultiPacketConfig::ACK_TIMEOUT_SAFETY_FACTOR * (toaDataMs * totalChunks + toaSackMs) +
+      LoRaMultiPacketConfig::ACK_TIMEOUT_SAFETY_FACTOR * (toaDataMs + toaSackMs) +
       LoRaMultiPacketConfig::SACK_PREAMBLE_GUARD_DELAY_MS +
       LoRaMultiPacketConfig::ACK_TIMEOUT_GUARD_MS);
   return (timeoutMs < LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS)

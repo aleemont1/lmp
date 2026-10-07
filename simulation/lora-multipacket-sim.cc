@@ -149,7 +149,7 @@ public:
     // Mirrors LoRaProtocol::calculateAckTimeoutMs(): armed after the burst has been transmitted.
     Time SackTimeout() const
     {
-        double ms = ACK_TIMEOUT_SAFETY_FACTOR * (ToA(CHUNK_PAYLOAD).GetSeconds() * 1000.0 * m_totalChunks
+        double ms = ACK_TIMEOUT_SAFETY_FACTOR * (ToA(CHUNK_PAYLOAD).GetSeconds() * 1000.0
                                                 + ToA((m_totalChunks + 7) / 8).GetSeconds() * 1000.0)
                     + GUARD_MS + GUARD_MS;
         return Seconds(std::max(MIN_ACK_TIMEOUT_MS, ms) / 1000.0);
