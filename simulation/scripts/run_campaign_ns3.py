@@ -9,7 +9,8 @@ Block B (distance tables): URBAN / RURAL / WATER published fits (+ log-normal sh
 
 Output: data/ns3_campaign_{A,B}.csv, one line per run:
     label,<RESULT fields of lora-multipacket-sim.cc>
-Run: python3 run_campaign_ns3.py [A|B|AB] [--limit N]   (needs a built scratch/lora-multipacket-sim)
+Block C (loss emulation, mirrors the hardware bench) is run separately.
+Run: python3 run_campaign_ns3.py [A|B|C|AB] [--limit N]   (needs a built scratch/lora-multipacket-sim)
 """
 import itertools
 import math
@@ -68,6 +69,15 @@ def jobs_B():
                 yield (label, d, mode, sf, env, seed, extra)
 
 
+LOSS_PCT = [0, 5, 10, 20, 30, 40, 50]
+
+
+def jobs_C():
+    """Frame-loss emulation matching the hardware bench: 100 m free space (no PHY loss), receiver drops p %."""
+    for p, sf, mode, seed in itertools.product(LOSS_PCT, [7, 10], ["Mode1", "Mode2", "Mode3", "Mode4"], SEEDS):
+        yield (f"C_loss{p}", 100.0, mode, sf, "LOS", seed, ["--sigma=0", "--m=50", f"--loss={p / 100}"])
+
+
 def run(job):
     label, d, mode, sf, env, seed, extra = job
     cmd = [BIN, f"--distance={d:.3f}", f"--mode={mode}", f"--sf={sf}", f"--env={env}", f"--seed={seed}", *extra]
@@ -85,7 +95,7 @@ def campaign(name, jobs, limit):
     start, failed = time.time(), 0
     with Pool(min(12, os.cpu_count() or 4)) as pool, open(path, "w") as f:
         f.write("label,distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,"
-                "senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS\n")
+                "senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS,senderChunksTx\n")
         for i, line in enumerate(pool.imap_unordered(run, jobs, chunksize=20), 1):
             if line:
                 f.write(line + "\n")
@@ -103,3 +113,5 @@ if __name__ == "__main__":
         campaign("A", jobs_A(), limit)
     if "B" in which:
         campaign("B", jobs_B(), limit)
+    if "C" in which:
+        campaign("C", jobs_C(), limit)

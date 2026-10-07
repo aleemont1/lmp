@@ -256,6 +256,7 @@ public:
         bool last = (m_idx == m_pending.size() - 1);
         uint8_t flags = (m_spec.proto == Proto::SACK && last) ? FLAG_ACK_REQ : FLAG_NONE;
         Time onAir = SendFrame(flags, m_pending[m_idx], m_totalChunks, {}, CHUNK_PAYLOAD);
+        m_chunksTx++;
         m_idx++;
         Simulator::Schedule(onAir + MilliSeconds(POST_TX_GUARD_MS), &MultiPacketNode::SendNextBurstChunk, this);
     }
@@ -267,6 +268,7 @@ public:
         if (m_rounds >= MAX_RETRIES) { Finish(false); return; }
         m_rounds++;
         Time onAir = SendFrame(FLAG_ACK_REQ, m_totalChunks - 1, m_totalChunks, {}, CHUNK_PAYLOAD);
+        m_chunksTx++;
         m_timeoutEvent = Simulator::Schedule(onAir + MilliSeconds(POST_TX_GUARD_MS) + SackTimeout(), &MultiPacketNode::HandleSackTimeout, this);
     }
 
@@ -296,6 +298,7 @@ public:
         if (!m_running || m_state == STATE_DONE) return;
         m_state = STATE_WAIT_SACK;
         Time onAir = SendFrame(FLAG_ACK_REQ, m_swCur, m_totalChunks, {}, CHUNK_PAYLOAD);
+        m_chunksTx++;
         m_timeoutEvent = Simulator::Schedule(onAir + MilliSeconds(POST_TX_GUARD_MS) + SwTimeout(), &MultiPacketNode::HandleSwTimeout, this);
     }
 
@@ -331,6 +334,8 @@ public:
         if (p->GetSize() < h.GetSerializedSize()) return;
         p->RemoveHeader(h);
         if (h.dst != m_nodeAddress) return;
+        // Loss emulation mirrors the bench receiver's DropPacketCallback: every frame except SACK/ACK is dropped with probability p.
+        if (!m_isSender && m_lossProb > 0.0 && !(h.flags & FLAG_ACK) && m_lossRng->GetValue() < m_lossProb) return;
 
         std::vector<uint8_t> body(p->GetSize(), 0);
         p->CopyData(body.data(), body.size());
@@ -422,6 +427,9 @@ public:
     Time m_senderDoneTime;
     double m_energySpent = 0.0;
     double m_txAirS = 0.0; // total time on air transmitted by this node
+    uint32_t m_chunksTx = 0; // data chunk transmissions (first sends and retransmissions)
+    double m_lossProb = 0.0; // receiver-side frame loss emulation (hardware bench: DropPacketCallback)
+    Ptr<UniformRandomVariable> m_lossRng = CreateObject<UniformRandomVariable>();
     uint32_t m_frequencyHz = 869525000;
 };
 
@@ -437,6 +445,7 @@ int main(int argc, char *argv[])
     double txPowerDbm = 24.2;      // +24.2 dBm EIRP (22 dBm PA + 3 dBi antenna - 0.8 dB IPEX)
     // Optional channel overrides (negative = keep the per-environment default below)
     double nOverride = -1.0, plRefOverride = -1.0, mOverride = -1.0, sigmaOverride = -1.0;
+    double lossProb = 0.0;
 
     CommandLine cmd;
     cmd.AddValue ("distance", "Distance between nodes in meters", distance);
@@ -450,6 +459,7 @@ int main(int argc, char *argv[])
     cmd.AddValue ("n", "Path-loss exponent override", nOverride);
     cmd.AddValue ("pl1km", "Path loss at 1 km override, dB", plRefOverride);
     cmd.AddValue ("m", "Nakagami m override", mOverride);
+    cmd.AddValue ("loss", "Receiver-side frame drop probability 0..1 (bench emulation; SACK/ACK frames exempt)", lossProb);
     cmd.AddValue ("sigma", "Log-normal shadowing std-dev override, dB (0 = none)", sigmaOverride);
     cmd.Parse (argc, argv);
 
@@ -538,6 +548,7 @@ int main(int argc, char *argv[])
     Ptr<MultiPacketNode> app1 = CreateObject<MultiPacketNode>();
     app1->Setup(dev1->GetPhy(), 0x02, 0x01, false, spec, totalChunks);
     app1->SetTxParams(sf, txPowerDbm, bandwidthHz);
+    app1->m_lossProb = lossProb;
 
     nodes.Get(0)->AddApplication(app0);
     nodes.Get(1)->AddApplication(app1);
@@ -563,7 +574,7 @@ int main(int argc, char *argv[])
     double senderDoneS = app0->m_state == STATE_DONE ? (app0->m_senderDoneTime - app0->m_startTime).GetSeconds() : -1.0;
 
     // Output line format:
-    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS
+    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS,senderChunksTx
     //   uniqueChunks = distinct chunks reassembled at the receiver (duplicates not counted)
     //   lastNewS     = time from session start to the last new chunk at the receiver (-1 if none)
     //   senderDoneS  = time until the sender stopped (SACK-complete / best-effort burst end / give-up), -1 if never
@@ -571,7 +582,7 @@ int main(int argc, char *argv[])
     std::cout << "RESULT:" << distance << "," << mode << "," << sf << "," << env << ","
               << app1->m_uniqueChunks << "," << totalChunks << "," << (app0->m_rounds + app0->m_synRetries) << ","
               << lastNewS << "," << (app0->m_energySpent + app1->m_energySpent) << "," << seed << ","
-              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << "," << shadowDb << "," << app0->m_txAirS << std::endl;
+              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << "," << shadowDb << "," << app0->m_txAirS << "," << app0->m_chunksTx << std::endl;
 
     return 0;
 }
