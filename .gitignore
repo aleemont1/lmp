@@ -118,3 +118,9 @@ simulation/media/
 *.mp4
 *.wav
 *.webp
+
+# Coding agents
+CLAUDE.md
+AGENTS.md
+.claude/
+.scratch/
