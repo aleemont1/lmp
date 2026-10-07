@@ -1,5 +1,6 @@
 #include "LoRaProtocol.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -451,7 +452,14 @@ bool LoRaProtocol::retransmitMissingChunks(const std::vector<Packet> &packets,
 
 void LoRaProtocol::update(uint32_t currentTimestampMs)
 {
-  reassembler_.prune(currentTimestampMs, LoRaMultiPacketConfig::PRUNE_TIMEOUT_MS);
+  // A session stays alive while the sender may still be repairing it: up to (R_max + 1) SACK timeouts of silence,
+  // never less than PRUNE_TIMEOUT_MS.
+  reassembler_.prune(currentTimestampMs,
+                     [this](uint8_t totalChunks)
+                     {
+                       uint32_t retryWindowMs = (LoRaMultiPacketConfig::MAX_RETRIES + 1) * calculateAckTimeoutMs(totalChunks);
+                       return std::max(LoRaMultiPacketConfig::PRUNE_TIMEOUT_MS, retryWindowMs);
+                     });
 
   // Inactivity / Idle Timeout Check for active connections
   if (connection_.state == ConnectionState::ESTABLISHED || connection_.state == ConnectionState::SYN_RCVD)

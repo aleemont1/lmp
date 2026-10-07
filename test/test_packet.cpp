@@ -483,6 +483,32 @@ static void test_reassembler_pruning(void)
   TEST_ASSERT_FALSE(res.has_value());
 }
 
+/**
+ * @brief A session stays alive while chunks keep arriving (inactivity is measured from the last chunk),
+ * and the limit can depend on the message's chunk count.
+ */
+static void test_reassembler_prune_by_inactivity(void)
+{
+  PacketReassembler reassembler;
+
+  reassembler.processPacket(create_chunk(41, 0, 3, "A"), 1000);
+  reassembler.processPacket(create_chunk(41, 1, 3, "B"), 9000);  // 8 s after the first chunk
+
+  // 11 s after the first chunk but only 2 s after the last: must survive a 5 s inactivity limit.
+  reassembler.prune(11000, 5000);
+  auto res = reassembler.processPacket(create_chunk(41, 2, 3, "C"), 11001);
+  TEST_ASSERT_TRUE(res.has_value());
+
+  // Per-message limit: a 2-chunk message gets 1 s, a 200-chunk message 60 s; both silent for 10 s.
+  reassembler.processPacket(create_chunk(42, 0, 2, "x"), 20000);
+  reassembler.processPacket(create_chunk(43, 0, 200, "y"), 20000);
+  reassembler.prune(30000, [](uint8_t total)
+                    { return total > 100 ? 60000u : 1000u; });
+  std::vector<uint8_t> bitmap;
+  TEST_ASSERT_FALSE(reassembler.getReceivedBitmap(0, 42, bitmap));
+  TEST_ASSERT_TRUE(reassembler.getReceivedBitmap(0, 43, bitmap));
+}
+
 static void test_reassembler_session_limit(void)
 {
   PacketReassembler reassembler;
@@ -814,6 +840,7 @@ int main(void)
   RUN_TEST(test_reassembler_unordered_flow);
   RUN_TEST(test_reassembler_duplicates_ignored);
   RUN_TEST(test_reassembler_pruning);
+  RUN_TEST(test_reassembler_prune_by_inactivity);
   RUN_TEST(test_reassembler_session_limit);
   RUN_TEST(test_reassembler_duplicate_mismatch_ignored);
   RUN_TEST(test_reassembler_reset);

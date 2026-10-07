@@ -21,6 +21,7 @@ std::optional<std::vector<uint8_t>> PacketReassembler::processPacket(const Packe
   }
 
   ReassemblySession &session = it->second;
+  session.lastReceivedTime = currentTimestampMs;
   session.chunks.emplace(chunkIdx, packet);
 
   if (session.chunks.size() == session.totalChunks)
@@ -35,10 +36,16 @@ std::optional<std::vector<uint8_t>> PacketReassembler::processPacket(const Packe
 
 void PacketReassembler::prune(uint32_t currentTimestampMs, uint32_t timeoutMs)
 {
+  prune(currentTimestampMs, [timeoutMs](uint8_t)
+        { return timeoutMs; });
+}
+
+void PacketReassembler::prune(uint32_t currentTimestampMs, const std::function<uint32_t(uint8_t)> &timeoutFor)
+{
   auto it = sessions_.begin();
   while (it != sessions_.end())
   {
-    if (currentTimestampMs - it->second.firstReceivedTime > timeoutMs)
+    if (currentTimestampMs - it->second.lastReceivedTime > timeoutFor(it->second.totalChunks))
     {
       it = sessions_.erase(it);
     }

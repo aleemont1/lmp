@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <vector>
@@ -32,14 +33,22 @@ class PacketReassembler
   std::optional<std::vector<uint8_t>> processPacket(const Packet &packet, uint32_t currentTimestampMs);
 
   /**
-   * @brief Removes incomplete messages that have exceeded the timeout duration.
+   * @brief Removes incomplete messages that have been inactive for longer than the timeout.
    *
-   * Should be called periodically to free up memory from lost or incomplete sequences.
+   * Inactivity is measured from the last chunk received for the message (duplicates included), so a sender that is
+   * still repairing a transfer keeps its session alive. Should be called periodically to free up memory from
+   * abandoned sequences.
    *
    * @param currentTimestampMs The current system time.
-   * @param timeoutMs The maximum duration to keep an incomplete message since its first packet arrived.
+   * @param timeoutMs The maximum inactivity before an incomplete message is dropped.
    */
   void prune(uint32_t currentTimestampMs, uint32_t timeoutMs);
+
+  /**
+   * @brief Same as prune(now, timeoutMs), with an inactivity limit that depends on the message's chunk count
+   * (the sender's SACK timeout grows with the number of chunks).
+   */
+  void prune(uint32_t currentTimestampMs, const std::function<uint32_t(uint8_t totalChunks)> &timeoutFor);
 
   /**
    * @brief Clears all pending reassembly sessions.
@@ -76,12 +85,12 @@ class PacketReassembler
   struct ReassemblySession
   {
     uint8_t totalChunks;
-    uint32_t firstReceivedTime;
+    uint32_t lastReceivedTime;
     std::map<uint8_t, Packet> chunks;
 
     ReassemblySession(uint8_t total, uint32_t time)
         : totalChunks(total),
-          firstReceivedTime(time)
+          lastReceivedTime(time)
     {
     }
   };
