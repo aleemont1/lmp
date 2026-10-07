@@ -179,6 +179,7 @@ public:
         m_phy->Send(pkt, m_frequencyHz, IQPolarity::UP, m_txParams, m_txPower);
         Time onAir = ToA(payloadLen);
         m_energySpent += P_TX_W * onAir.GetSeconds();
+        m_txAirS += onAir.GetSeconds();
         return onAir;
     }
 
@@ -420,6 +421,7 @@ public:
     Time m_lastNewTime;
     Time m_senderDoneTime;
     double m_energySpent = 0.0;
+    double m_txAirS = 0.0; // total time on air transmitted by this node
     uint32_t m_frequencyHz = 869525000;
 };
 
@@ -561,7 +563,7 @@ int main(int argc, char *argv[])
     double senderDoneS = app0->m_state == STATE_DONE ? (app0->m_senderDoneTime - app0->m_startTime).GetSeconds() : -1.0;
 
     // Output line format:
-    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb
+    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS
     //   uniqueChunks = distinct chunks reassembled at the receiver (duplicates not counted)
     //   lastNewS     = time from session start to the last new chunk at the receiver (-1 if none)
     //   senderDoneS  = time until the sender stopped (SACK-complete / best-effort burst end / give-up), -1 if never
@@ -569,7 +571,7 @@ int main(int argc, char *argv[])
     std::cout << "RESULT:" << distance << "," << mode << "," << sf << "," << env << ","
               << app1->m_uniqueChunks << "," << totalChunks << "," << (app0->m_rounds + app0->m_synRetries) << ","
               << lastNewS << "," << (app0->m_energySpent + app1->m_energySpent) << "," << seed << ","
-              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << "," << shadowDb << std::endl;
+              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << "," << shadowDb << "," << app0->m_txAirS << std::endl;
 
     return 0;
 }

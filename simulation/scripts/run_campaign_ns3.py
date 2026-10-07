@@ -85,7 +85,7 @@ def campaign(name, jobs, limit):
     start, failed = time.time(), 0
     with Pool(min(12, os.cpu_count() or 4)) as pool, open(path, "w") as f:
         f.write("label,distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,"
-                "senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb\n")
+                "senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb,senderTxAirS\n")
         for i, line in enumerate(pool.imap_unordered(run, jobs, chunksize=20), 1):
             if line:
                 f.write(line + "\n")
