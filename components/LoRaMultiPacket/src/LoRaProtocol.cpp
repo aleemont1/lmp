@@ -346,7 +346,7 @@ uint32_t LoRaProtocol::calculateAckTimeoutMs(size_t totalChunks) const
       LoRaMultiPacketConfig::ACK_TIMEOUT_GUARD_MS);
   return (timeoutMs < LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS)
              ? LoRaMultiPacketConfig::MIN_ACK_TIMEOUT_MS
-             : timeoutMs;
+	     : timeoutMs;
 }
 
 bool LoRaProtocol::waitForSack(uint8_t targetAddr, uint16_t msgId, uint32_t timeoutMs, std::vector<uint8_t> &sackBitmapOut)
