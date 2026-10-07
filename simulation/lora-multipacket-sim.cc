@@ -420,6 +420,12 @@ int main(int argc, char *argv[])
     Ptr<LoraNetDevice> dev0 = DynamicCast<LoraNetDevice>(nodes.Get(0)->GetDevice(0));
     Ptr<LoraNetDevice> dev1 = DynamicCast<LoraNetDevice>(nodes.Get(1)->GetDevice(0));
 
+    // Register 869.525 MHz frequency on PHY receivers
+    Ptr<GatewayLoraPhy> gwPhy0 = DynamicCast<GatewayLoraPhy>(dev0->GetPhy());
+    Ptr<GatewayLoraPhy> gwPhy1 = DynamicCast<GatewayLoraPhy>(dev1->GetPhy());
+    if (gwPhy0) gwPhy0->AddFrequency(869525000);
+    if (gwPhy1) gwPhy1->AddFrequency(869525000);
+
     Ptr<MultiPacketNode> app0 = CreateObject<MultiPacketNode>();
     app0->Setup(dev0->GetPhy(), 0x01, 0x02, true, mode, totalChunks);
     app0->SetTxParams(sf, 24.2); // +24.2 dBm bilateral EIRP (22 dBm PA + 3 dBi antenna - 0.8 dB IPEX)

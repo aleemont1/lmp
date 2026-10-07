@@ -11,7 +11,7 @@ distances = list(range(100, 15100, 100))
 sfs = [7, 9, 10]
 modes = ["Mode1", "Mode2", "Mode3", "Mode4"]
 envs = ["LOS", "URBAN", "RURAL"]
-seeds = list(range(1, 31)) # 30 trials — 95% CI (IEEE journal standard, as per supervisor feedback)
+seeds = list(range(1, 51)) # 50 trials Monte Carlo simulation
 
 combinations = list(itertools.product(distances, sfs, modes, envs, seeds))
 total_sims = len(combinations)
