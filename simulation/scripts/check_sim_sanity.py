@@ -8,7 +8,7 @@ import subprocess
 NS3_DIR = os.path.join(os.path.dirname(__file__), "..", "ns3-workspace", "ns-3-dev")
 BIN = os.path.join(NS3_DIR, "build", "scratch", "ns3.48-lora-multipacket-sim-default")
 ENV = dict(os.environ, LD_LIBRARY_PATH=os.path.join(NS3_DIR, "build", "lib"))
-LOSSY = ["--env=URBAN", "--n=4.0", "--pl1km=113", "--m=1.0"]  # ~-8 dB mean SNR at 8.2 km, SF7
+LOSSY = ["--env=URBAN", "--n=4.0", "--pl1km=113", "--m=1.0", "--sigma=0"]  # ~-8 dB mean SNR at 8.2 km, SF7
 
 
 def run(distance, mode, seed=1, extra=("--env=LOS",), sf=7):

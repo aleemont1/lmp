@@ -270,8 +270,7 @@ public:
     }
 
     // SACK received: complete, or selectively re-send the chunks whose bit is 0.
-    // ponytail: repair rounds (timeouts and SACK-with-gaps) share one budget R_max, as in the paper's
-    // analysis; the firmware currently resets its counter on every SACK (known divergence).
+    // Repair rounds (timeouts and SACK-with-gaps) share one budget R_max, as in the paper and in LoRaProtocol::sendReliable.
     void OnSack(const std::vector<uint8_t> &bitmap)
     {
         Simulator::Cancel(m_timeoutEvent);
@@ -435,7 +434,7 @@ int main(int argc, char *argv[])
     uint32_t bandwidthHz = 125000; // ETSI EN 300 220 Band P (869.4-869.65 MHz) allows <= 250 kHz channels
     double txPowerDbm = 24.2;      // +24.2 dBm EIRP (22 dBm PA + 3 dBi antenna - 0.8 dB IPEX)
     // Optional channel overrides (negative = keep the per-environment default below)
-    double nOverride = -1.0, plRefOverride = -1.0, mOverride = -1.0;
+    double nOverride = -1.0, plRefOverride = -1.0, mOverride = -1.0, sigmaOverride = -1.0;
 
     CommandLine cmd;
     cmd.AddValue ("distance", "Distance between nodes in meters", distance);
@@ -449,6 +448,7 @@ int main(int argc, char *argv[])
     cmd.AddValue ("n", "Path-loss exponent override", nOverride);
     cmd.AddValue ("pl1km", "Path loss at 1 km override, dB", plRefOverride);
     cmd.AddValue ("m", "Nakagami m override", mOverride);
+    cmd.AddValue ("sigma", "Log-normal shadowing std-dev override, dB (0 = none)", sigmaOverride);
     cmd.Parse (argc, argv);
 
     ModeSpec spec;
@@ -468,14 +468,35 @@ int main(int argc, char *argv[])
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mobility.Install(nodes);
 
-    // Path loss: log-distance + Nakagami-m fast fading (parameters are modelling assumptions, see --n/--pl1km/--m)
-    double n, plRef1km, m;
-    if (env == "URBAN")      { n = 4.5; plRef1km = 131.0; m = 1.0; }
-    else if (env == "RURAL") { n = 4.2; plRef1km = 118.0; m = 1.5; }
-    else                     { n = 4.0; plRef1km = 113.0; m = 3.0; } // LOS
+    // Path loss: log-distance + per-run log-normal shadowing + Nakagami-m fast fading.
+    // n / PL(1 km) / sigma are published 868 MHz fits (single-slope log-distance models):
+    //   URBAN: Petajajarvi et al., ITST 2015, Table IV, car on ground, Oulu (n 2.32, 128.95 dB, sigma 7.8 dB)
+    //   RURAL: Azevedo & Mendonca, Sensors 24(12):3877, Table 12, re-fit of Chall et al. (n 2.93, alpha 22.14 dB
+    //          -> 110.0 dB at 1 km; sigma ~ fit RMSE 6.3 dB). Review authors' re-fit, not the original paper.
+    //   LOS:   free space (n 2, 91.2 dB at 869.5 MHz, no shadowing)
+    //   WATER: Petajajarvi et al., Table IV, boat on water (n 1.76, 126.43 dB, sigma 8.0 dB)
+    // Nakagami m (3 / 1.5 / 1) is a modelling assumption: no LoRa measurement was found for it.
+    // Stress tests use the overrides (e.g. --n=4.0 --pl1km=113).
+    double n, plRef1km, m, sigma;
+    if (env == "URBAN")      { n = 2.32; plRef1km = 128.95; m = 1.0; sigma = 7.8; }
+    else if (env == "RURAL") { n = 2.93; plRef1km = 110.04; m = 1.5; sigma = 6.3; }
+    else if (env == "WATER") { n = 1.76; plRef1km = 126.43; m = 3.0; sigma = 8.0; }
+    else                     { n = 2.0;  plRef1km = 91.23;  m = 3.0; sigma = 0.0; } // LOS
     if (nOverride > 0) n = nOverride;
     if (plRefOverride > 0) plRef1km = plRefOverride;
     if (mOverride > 0) m = mOverride;
+    if (sigmaOverride >= 0) sigma = sigmaOverride;
+
+    // Shadowing is constant over a transfer (one draw per run/seed) and shifts the reference loss.
+    double shadowDb = 0.0;
+    if (sigma > 0)
+    {
+        Ptr<NormalRandomVariable> shadow = CreateObject<NormalRandomVariable>();
+        shadow->SetAttribute("Mean", DoubleValue(0.0));
+        shadow->SetAttribute("Variance", DoubleValue(sigma * sigma));
+        shadowDb = shadow->GetValue();
+        plRef1km += shadowDb;
+    }
 
     Ptr<LogDistancePropagationLossModel> loss = CreateObject<LogDistancePropagationLossModel>();
     loss->SetPathLossExponent(n);
@@ -530,8 +551,9 @@ int main(int argc, char *argv[])
     Simulator::Run();
     Simulator::Destroy();
 
-    // Mean received SNR (no fading): path loss at this distance vs. thermal noise (NF 6 dB)
-    double plMean = plRef1km + 10.0 * n * std::log10(distance / 1000.0);
+    // Nominal received SNR (no fading, no shadowing): path loss at this distance vs. thermal noise (NF 6 dB).
+    // Effective SNR of this run = meanSnrDb - shadowDb.
+    double plMean = (plRef1km - shadowDb) + 10.0 * n * std::log10(distance / 1000.0); // nominal, without this run's shadowing
     double rxMeanDbm = txPowerDbm - plMean;
     double meanSnrDb = rxMeanDbm - (-174.0 + 10.0 * std::log10((double)bandwidthHz) + 6.0);
 
@@ -539,7 +561,7 @@ int main(int argc, char *argv[])
     double senderDoneS = app0->m_state == STATE_DONE ? (app0->m_senderDoneTime - app0->m_startTime).GetSeconds() : -1.0;
 
     // Output line format:
-    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz
+    // RESULT:distance,mode,sf,env,uniqueChunks,totalChunks,rounds,lastNewS,energyJ,seed,senderOk,senderDoneS,meanSnrDb,bwHz,shadowDb
     //   uniqueChunks = distinct chunks reassembled at the receiver (duplicates not counted)
     //   lastNewS     = time from session start to the last new chunk at the receiver (-1 if none)
     //   senderDoneS  = time until the sender stopped (SACK-complete / best-effort burst end / give-up), -1 if never
@@ -547,7 +569,7 @@ int main(int argc, char *argv[])
     std::cout << "RESULT:" << distance << "," << mode << "," << sf << "," << env << ","
               << app1->m_uniqueChunks << "," << totalChunks << "," << (app0->m_rounds + app0->m_synRetries) << ","
               << lastNewS << "," << (app0->m_energySpent + app1->m_energySpent) << "," << seed << ","
-              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << std::endl;
+              << (app0->m_senderOk ? 1 : 0) << "," << senderDoneS << "," << meanSnrDb << "," << bandwidthHz << "," << shadowDb << std::endl;
 
     return 0;
 }
